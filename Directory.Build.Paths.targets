@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Build path redirection for the WinUAE fork.
+  Copyright (C) 2026 Drazen Hudoletnjak
+  Licensed under the GNU General Public License v2.
+
+  Imported (via ForceImportBeforeCppTargets in Directory.Build.props) after the
+  project body but before the C++ targets compute TargetDir/TargetPath and the
+  VC++ directories, so it can rewrite the paths upstream hardcodes:
+
+  - d:\amiga\ output, and every configuration of the main winuae project,
+    goes to $(WinUAEOutDir), so winuae.exe, winuae64.exe and winuaearm64.exe
+    always end up in one place.
+  - Every c:\dev\ reference (include/library paths, prowizard.lib output)
+    is rewritten to $(WinUAEDepsDir), matched case-insensitively.
+-->
+<Project>
+  <PropertyGroup>
+    <_WinUAEDevPattern>(?i)c:\\dev\\</_WinUAEDevPattern>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(OutDir)' == 'd:\amiga\' or '$(MSBuildProjectName)' == 'winuae_msvc'">
+    <OutDir>$(WinUAEOutDir)</OutDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <OutDir>$([System.Text.RegularExpressions.Regex]::Replace('$(OutDir)', '$(_WinUAEDevPattern)', '$(WinUAEDepsDir)'))</OutDir>
+    <IncludePath>$([System.Text.RegularExpressions.Regex]::Replace('$(IncludePath)', '$(_WinUAEDevPattern)', '$(WinUAEDepsDir)'))</IncludePath>
+    <LibraryPath>$([System.Text.RegularExpressions.Regex]::Replace('$(LibraryPath)', '$(_WinUAEDevPattern)', '$(WinUAEDepsDir)'))</LibraryPath>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalLibraryDirectories>$([System.Text.RegularExpressions.Regex]::Replace('%(Link.AdditionalLibraryDirectories)', '$(_WinUAEDevPattern)', '$(WinUAEDepsDir)'))</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!--
+    Portable mode: when winuae.ini exists next to the executable, WinUAE keeps
+    its settings in that file instead of the registry and uses the executable
+    folder as its data folder (relative paths). The file is shared by
+    winuae.exe, winuae64.exe and winuaearm64.exe and is never overwritten.
+  -->
+  <Target Name="WinUAEEnsurePortableIni" AfterTargets="Build"
+          Condition="'$(MSBuildProjectName)' == 'winuae_msvc' and !Exists('$(OutDir)winuae.ini')">
+    <Touch Files="$(OutDir)winuae.ini" AlwaysCreate="true" />
+  </Target>
+</Project>

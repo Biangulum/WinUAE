@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Local build settings for the WinUAE fork (VS2026 / MSBuild).
+  Copyright (C) 2026 Drazen Hudoletnjak
+  Licensed under the GNU General Public License v2.
+
+  MSBuild imports this file automatically, early in every project below this
+  folder. It defines the in-repo folders used instead of upstream's hardcoded
+  d:\amiga and c:\dev, and registers Directory.Build.Paths.targets, which the
+  C++ build imports right after the project body, so upstream .vcxproj files
+  stay untouched.
+
+    out\           built executables (upstream: d:\amiga\)
+    deps\include\  third-party headers from winuaeinclibs.zip (upstream: c:\dev\include\)
+    deps\lib\      third-party libraries, per architecture (upstream: c:\dev\lib\)
+-->
+<Project>
+  <PropertyGroup>
+    <WinUAEOutDir Condition="'$(WinUAEOutDir)' == ''">$(MSBuildThisFileDirectory)out\</WinUAEOutDir>
+    <WinUAEDepsDir Condition="'$(WinUAEDepsDir)' == ''">$(MSBuildThisFileDirectory)deps\</WinUAEDepsDir>
+    <ForceImportBeforeCppTargets>$(MSBuildThisFileDirectory)Directory.Build.Paths.targets</ForceImportBeforeCppTargets>
+  </PropertyGroup>
+</Project>
