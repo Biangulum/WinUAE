@@ -8,8 +8,8 @@
 > The code is licensed under the GNU General Public License, version 2
 > (see [COPYING](COPYING)).
 >
-> Please do not report bugs found in this fork to the original author.
-> Report them in this repository instead.
+> This is a personal test fork, maintained for my own use; no support is
+> provided. Please do not report bugs found in this fork to the original author.
 
 # WinUAE
 
