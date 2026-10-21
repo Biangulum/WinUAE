@@ -24,14 +24,15 @@
     uaeunp, cputestgen, cputester_m68k
                      compile errors in their ARM64 configs.
     resourcedll      project file is missing from the repository.
+    unpackers        has no source files; the solution's Debug|ARM64 maps it
+                     to ReleaseXP|ARM64, which needs the old v141_xp toolset.
 */
 {
   "solution": {
     "path": "od-win32\\winuae_msvc15\\winuae_msvc.sln",
     "projects": [
       "winuae_msvc.vcxproj",
-      "..\\prowizard\\prowizard.vcxproj",
-      "..\\unpackers\\unpackers.vcxproj"
+      "..\\prowizard\\prowizard.vcxproj"
     ]
   }
 }
