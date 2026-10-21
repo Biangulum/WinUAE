@@ -1,3 +1,15 @@
+> **Unofficial fork.** This repository is an unofficial fork of
+> [WinUAE](https://www.winuae.net/) by Toni Wilen. The upstream project is
+> available at [github.com/tonioni/WinUAE](https://github.com/tonioni/WinUAE).
+>
+> Goals of this fork: building with Visual Studio 2026, x64 builds and native
+> Arm64 (Windows on Arm) builds.
+>
+> The code is licensed under the GNU General Public License, version 2
+> (see [COPYING](COPYING)).
+>
+> Please do not report bugs found in this fork to the original author.
+> Report them in this repository instead.
 
 # WinUAE
 
