@@ -12,17 +12,23 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
   GNU General Public License for more details.
 
-  Loads only the projects of upstream's winuae_msvc.sln that build for ARM64,
-  so "Build Solution" works without editing upstream .sln/.vcxproj files.
+  Loads only the winuae project of upstream's winuae_msvc.sln, so that
+  "Build Solution" safely builds winuaearm64.exe without editing upstream
+  .sln/.vcxproj files. The other projects are left out on purpose:
 
-  Left out on purpose:
     gencpu, gencomp, genblitter, build68k, genlinetoscr
                      code generators: they rewrite generated sources in the
                      tree and must run in order, which the solution does not
-                     enforce. Build them with generators.proj when needed; the
+                     enforce (genblitter deletes blit.h, which winuae compiles).
+                     Build them with generators.proj when needed; the
                      generated sources are already in the repository.
-    uaeunp, cputestgen, cputester_m68k
-                     compile errors in their ARM64 configs.
+    cputestgen       needs the test CPU core gencpu writes first; build it
+                     with "generators.proj -t:CpuTester".
+    prowizard        winuae links prowizard.lib from winuaeinclibs.zip; the
+                     project's output (prowizard_arm64.lib) is not used.
+    uaeunp, cputester_m68k
+                     do not build on any platform (upstream projects out of
+                     date).
     resourcedll      project file is missing from the repository.
     unpackers        has no source files; the solution's Debug|ARM64 maps it
                      to ReleaseXP|ARM64, which needs the old v141_xp toolset.
@@ -31,8 +37,7 @@
   "solution": {
     "path": "od-win32\\winuae_msvc15\\winuae_msvc.sln",
     "projects": [
-      "winuae_msvc.vcxproj",
-      "..\\prowizard\\prowizard.vcxproj"
+      "winuae_msvc.vcxproj"
     ]
   }
 }
