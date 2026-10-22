@@ -1,3 +1,4 @@
+// Modified 2026 by Drazen Hudoletnjak: optional ENet, OpenAL and Lua on ARM64
 #ifndef WINUAE_SYSCONFIG_H
 #define WINUAE_SYSCONFIG_H
 
@@ -148,9 +149,17 @@
 
 #ifdef ARM64
 
+// ARM64_WITH_* are defined by the fork's Directory.Build.Paths.targets when
+// deps-build\build-deps.ps1 has built the library for ARM64.
+#ifndef ARM64_WITH_ENET
 #undef SERIAL_ENET
+#endif
+#ifndef ARM64_WITH_OPENAL
 #undef WITH_OPENAL
+#endif
+#ifndef ARM64_WITH_LUA
 #undef WITH_LUA
+#endif
 #undef WITH_DIRECT3D9
 
 #endif

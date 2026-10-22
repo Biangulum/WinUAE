@@ -13,6 +13,7 @@
 * For more details visit <http://unlicense.org>.
 *
 */
+// Modified 2026 by Drazen Hudoletnjak: ARM64 plugin name
 
 #ifndef _WIN32
 #include "uae/dlopen.h"
@@ -71,6 +72,9 @@ HMODULE WIN32_LoadLibrary(const TCHAR*);
 
 #if defined(__APPLE__)
 #define MODULENAME "FloppyBridge.so"
+#elif defined(_M_ARM64) && defined(WINUAE)
+// WIN32_LoadLibrary tries FloppyBridge_arm64.dll first
+#define MODULENAME _T("FloppyBridge.dll")
 #elif defined(_WIN64)
 #define MODULENAME _T("FloppyBridge_x64.dll")
 #else

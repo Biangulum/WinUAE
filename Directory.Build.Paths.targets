@@ -54,4 +54,56 @@
           Condition="'$(MSBuildProjectName)' == 'winuae_msvc' and !Exists('$(OutDir)winuae.ini')">
     <Touch Files="$(OutDir)winuae.ini" AlwaysCreate="true" />
   </Target>
+
+  <!--
+    Optional ARM64 libraries built by deps-build\build-deps.ps1: when one is
+    present, link it and define ARM64_WITH_*, which keeps od-win32\sysconfig.h
+    from disabling the feature on ARM64.
+  -->
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'winuae_msvc' and '$(Platform)' == 'ARM64' and Exists('$(WinUAEDepsDir)lib\arm64\enet.lib')">
+    <ClCompile>
+      <PreprocessorDefinitions>ARM64_WITH_ENET;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>enet.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'winuae_msvc' and '$(Platform)' == 'ARM64' and Exists('$(WinUAEDepsDir)lib\arm64\OpenAL32.lib')">
+    <ClCompile>
+      <PreprocessorDefinitions>ARM64_WITH_OPENAL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>OpenAL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>OpenAL32.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'winuae_msvc' and '$(Platform)' == 'ARM64' and Exists('$(WinUAEDepsDir)lib\arm64\luastatic.lib')">
+    <ClCompile>
+      <PreprocessorDefinitions>ARM64_WITH_LUA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>luastatic.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!--
+    Runtime DLLs built by deps-build\build-deps.ps1 (deps\bin\<arch>\, with
+    plugins in its plugins\ subfolder) are copied next to the executable.
+  -->
+  <PropertyGroup>
+    <_WinUAEDepsArch Condition="'$(Platform)' == 'Win32'">x86</_WinUAEDepsArch>
+    <_WinUAEDepsArch Condition="'$(Platform)' == 'x64'">x64</_WinUAEDepsArch>
+    <_WinUAEDepsArch Condition="'$(Platform)' == 'ARM64'">arm64</_WinUAEDepsArch>
+    <_WinUAEDepsBinDir>$(WinUAEDepsDir)bin\$(_WinUAEDepsArch)\</_WinUAEDepsBinDir>
+  </PropertyGroup>
+
+  <Target Name="WinUAECopyRuntimeDlls" AfterTargets="Build"
+          Condition="'$(MSBuildProjectName)' == 'winuae_msvc' and '$(_WinUAEDepsArch)' != '' and Exists('$(_WinUAEDepsBinDir)')">
+    <ItemGroup>
+      <_WinUAERuntimeFile Include="$(_WinUAEDepsBinDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WinUAERuntimeFile)"
+          DestinationFiles="@(_WinUAERuntimeFile->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

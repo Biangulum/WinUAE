@@ -1,0 +1,31 @@
+; Exports of the MSVC build of the SPS decoder library (CAPSImg),
+; taken from CAPSImg/libcapsimage.map.
+LIBRARY CAPSImg
+EXPORTS
+	CAPSInit
+	CAPSExit
+	CAPSAddImage
+	CAPSRemImage
+	CAPSLockImage
+	CAPSLockImageMemory
+	CAPSUnlockImage
+	CAPSLoadImage
+	CAPSGetImageInfo
+	CAPSLockTrack
+	CAPSUnlockTrack
+	CAPSUnlockAllTracks
+	CAPSGetPlatformName
+	CAPSGetVersionInfo
+	CAPSFdcGetInfo
+	CAPSFdcInit
+	CAPSFdcReset
+	CAPSFdcEmulate
+	CAPSFdcRead
+	CAPSFdcWrite
+	CAPSFdcInvalidateTrack
+	CAPSFormatDataToMFM
+	CAPSGetInfo
+	CAPSSetRevolution
+	CAPSGetImageType
+	CAPSGetImageTypeMemory
+	CAPSGetDebugRequest
