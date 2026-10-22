@@ -26,6 +26,10 @@
 <Project>
   <PropertyGroup>
     <_WinUAEDevPattern>(?i)c:\\dev\\</_WinUAEDevPattern>
+    <!-- Architecture folder name used under deps\lib\ and deps\bin\. -->
+    <_WinUAEDepsArch Condition="'$(Platform)' == 'Win32'">x86</_WinUAEDepsArch>
+    <_WinUAEDepsArch Condition="'$(Platform)' == 'x64'">x64</_WinUAEDepsArch>
+    <_WinUAEDepsArch Condition="'$(Platform)' == 'ARM64'">arm64</_WinUAEDepsArch>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OutDir)' == 'd:\amiga\' or '$(MSBuildProjectName)' == 'winuae_msvc'">
@@ -40,7 +44,7 @@
 
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalLibraryDirectories>$([System.Text.RegularExpressions.Regex]::Replace('%(Link.AdditionalLibraryDirectories)', '$(_WinUAEDevPattern)', '$(WinUAEDepsDir)'))</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$([MSBuild]::Unescape($([System.Text.RegularExpressions.Regex]::Replace('%(Link.AdditionalLibraryDirectories)', '$(_WinUAEDevPattern)', '$(WinUAEDepsDir)'))))</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
 
@@ -74,7 +78,7 @@
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
     </ClCompile>
     <Link>
-      <AdditionalOptions>$([System.Text.RegularExpressions.Regex]::Replace('%(Link.AdditionalOptions)', '(?i)/MACHINE:I386', ''))</AdditionalOptions>
+      <AdditionalOptions>$([MSBuild]::Unescape($([System.Text.RegularExpressions.Regex]::Replace('%(Link.AdditionalOptions)', '(?i)/MACHINE:I386', ''))))</AdditionalOptions>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <ProgramDatabaseFile>$(IntDir)$(MSBuildProjectName).pdb</ProgramDatabaseFile>
     </Link>
@@ -147,9 +151,6 @@
     plugins in its plugins\ subfolder) are copied next to the executable.
   -->
   <PropertyGroup>
-    <_WinUAEDepsArch Condition="'$(Platform)' == 'Win32'">x86</_WinUAEDepsArch>
-    <_WinUAEDepsArch Condition="'$(Platform)' == 'x64'">x64</_WinUAEDepsArch>
-    <_WinUAEDepsArch Condition="'$(Platform)' == 'ARM64'">arm64</_WinUAEDepsArch>
     <_WinUAEDepsBinDir>$(WinUAEDepsDir)bin\$(_WinUAEDepsArch)\</_WinUAEDepsBinDir>
   </PropertyGroup>
 
