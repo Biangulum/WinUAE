@@ -6,6 +6,7 @@
 *  Content:    Win32-specific gui features for UAE port.
 *
 ***************************************************************************/
+// Modified 2026 by Drazen Hudoletnjak: no Host (80-bit) FPU mode on ARM64
 
 #define CONFIGCACHE 1
 #define FRONTEND 0
@@ -13964,6 +13965,11 @@ static void values_from_cpudlg(HWND hDlg, WPARAM wParam)
 		workprefs.fpu_mode = -1;
 	if (idx == 2)
 		workprefs.fpu_mode = 1;
+#ifdef CPU_AARCH64
+	// No "Host (80-bit)" entry on ARM64, index 1 is softfloat
+	if (idx == 1)
+		workprefs.fpu_mode = 1;
+#endif
 
 	newcpu = ischecked (hDlg, IDC_CPU0) ? 68000
 		: ischecked (hDlg, IDC_CPU1) ? 68010
@@ -14161,9 +14167,15 @@ static INT_PTR CALLBACK CPUDlgProc (HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
 
 		xSendDlgItemMessage(hDlg, IDC_FPU_MODE, CB_RESETCONTENT, 0, 0);
 		xSendDlgItemMessage(hDlg, IDC_FPU_MODE, CB_ADDSTRING, 0, (LPARAM)_T("Host (64-bit)"));
+#ifndef CPU_AARCH64
 		xSendDlgItemMessage(hDlg, IDC_FPU_MODE, CB_ADDSTRING, 0, (LPARAM)_T("Host (80-bit)"));
+#endif
 		xSendDlgItemMessage(hDlg, IDC_FPU_MODE, CB_ADDSTRING, 0, (LPARAM)_T("Softfloat (80-bit)"));
 		idx = workprefs.fpu_mode < 0 ? 1 : (workprefs.fpu_mode > 0 ? 2 : 0);
+#ifdef CPU_AARCH64
+		// No host 80-bit FPU on ARM64: that mode runs as softfloat
+		idx = workprefs.fpu_mode != 0 ? 1 : 0;
+#endif
 		xSendDlgItemMessage(hDlg, IDC_FPU_MODE, CB_SETCURSEL, idx, 0);
 
 		idx = 5;

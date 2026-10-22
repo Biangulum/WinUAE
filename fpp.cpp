@@ -7,6 +7,7 @@
 * Modified 2005 Peter Keunecke
 * 68040+ exceptions and more by Toni Wilen
 */
+// Modified 2026 by Drazen Hudoletnjak: softfloat fallback when switching to an unavailable host 80-bit FPU
 
 #define __USE_ISOC9X  /* We might be able to pick up a NaN */
 
@@ -3642,7 +3643,10 @@ void fpu_modechange(void)
 		use_long_double = false;
 	} else if (currprefs.fpu_mode < 0) {
 		use_long_double = true;
-		fp_init_native_80();
+		if (!fp_init_native_80()) {
+			use_long_double = false;
+			fp_init_softfloat(currprefs.fpu_model);
+		}
 #endif
 	} else {
 #ifdef MSVC_LONG_DOUBLE
