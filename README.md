@@ -11,6 +11,29 @@
 > This is a personal test fork, maintained for my own use; no support is
 > provided. Please do not report bugs found in this fork to the original author.
 
+## Building this fork for Arm64
+
+Ready-made packages are built by the "Fork ARM64 package" workflow in
+GitHub Actions on every push to `vs2026-arm64`.
+
+To build locally (Visual Studio 2026 with the C++ and ARM64 build tools, git):
+
+1. Extract [winuaeinclibs.zip](https://download.abime.net/winuae/files/b/winuaeinclibs.zip)
+   into `deps\` (giving `deps\include` and `deps\lib`). Nothing is needed in
+   `C:\dev` or `D:\Amiga`: `Directory.Build.props` redirects those paths.
+2. Build the Arm64 runtime libraries (PortAudio, CAPSImg, UnRAR, FloppyBridge,
+   OpenAL Soft, Lua, ENet) from source, see [deps-build](deps-build/README.md):
+   `powershell -ExecutionPolicy Bypass -File deps-build\build-deps.ps1`
+3. Build `winuae_arm64.slnf` (FullRelease, ARM64) in Visual Studio, or
+   `msbuild winuae_arm64.slnf -p:Configuration=FullRelease -p:Platform=ARM64`.
+   The emulator and its DLLs end up in `out\`.
+
+The generated sources are in the repository. To regenerate them, or to build
+the CPU tester generator, use `generators.proj` (see the comments in it):
+`msbuild generators.proj -p:Platform=ARM64`.
+
+The rest of this file is upstream's README.
+
 # WinUAE
 
 Optional GDB debugging is described in
