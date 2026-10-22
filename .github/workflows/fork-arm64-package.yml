@@ -1,0 +1,68 @@
+# Builds the complete native ARM64 package of the WinUAE fork: the emulator
+# plus the runtime libraries built by deps-build\build-deps.ps1.
+#
+# Copyright 2026 Drazen Hudoletnjak
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# Like upstream's build-winuae-binary.yml, it cross-compiles on an x64 runner
+# with the preinstalled Visual Studio. The artifact contains out\ without
+# winuae.ini (whose presence switches WinUAE to portable mode).
+
+name: Fork ARM64 package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - vs2026-arm64
+
+jobs:
+  Build-WinUAE-ARM64-package:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download and unpack WinUAE includes and libs to deps\
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        # The server sometimes resets the connection; curl resumes the download.
+        for ($i = 1; $i -le 10; $i++) {
+          curl.exe -sSL --retry 3 -C - -o winuaeinclibs.zip https://download.abime.net/winuae/files/b/winuaeinclibs.zip
+          if ($LASTEXITCODE -eq 0) { break }
+          Write-Host "Download attempt $i failed ($LASTEXITCODE), resuming"
+        }
+        $hash = (Get-FileHash -Algorithm SHA256 winuaeinclibs.zip).Hash
+        if ($hash -ne '19C39817FE7D92704980291714ACDE5ADD798151338695C3A0450C51F7C4B7B1') { throw "winuaeinclibs.zip has SHA-256 $hash" }
+        Expand-Archive winuaeinclibs.zip -DestinationPath deps
+
+    - name: Build ARM64 runtime libraries
+      shell: powershell
+      run: powershell -ExecutionPolicy Bypass -File deps-build\build-deps.ps1
+
+    - name: Build WinUAE ARM64 FullRelease
+      shell: cmd
+      run: |
+        for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath`) do set "VSINSTALL=%%i"
+        call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat"
+        msbuild /m /p:Platform=ARM64 /p:Configuration=FullRelease winuae_arm64.slnf
+
+    - name: Remove portable mode marker
+      shell: powershell
+      run: Remove-Item out\winuae.ini -ErrorAction SilentlyContinue
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: WinUAE ARM64 package
+        path: |
+          out\
+          !out\*.pdb
