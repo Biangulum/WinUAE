@@ -17,10 +17,10 @@
 
   Left out on purpose:
     gencpu, gencomp, genblitter, build68k, genlinetoscr
-                     ARM64 configs link with /MACHINE:I386 or /DYNAMICBASE:NO
-                     and fail; genblitter also deletes blit.h, blitfunc.cpp,
-                     blitfunc.h and blittable.cpp before linking. The generated
-                     sources are already in the repository.
+                     code generators: they rewrite generated sources in the
+                     tree and must run in order, which the solution does not
+                     enforce. Build them with generators.proj when needed; the
+                     generated sources are already in the repository.
     uaeunp, cputestgen, cputester_m68k
                      compile errors in their ARM64 configs.
     resourcedll      project file is missing from the repository.

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Builds and runs the WinUAE code generators in the required order.
+
+  Copyright 2026 Drazen Hudoletnjak
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License version 2 as
+  published by the Free Software Foundation.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  Each generator's post-build step runs it and rewrites generated sources in
+  the source tree (cpuemu_*.cpp, linetoscr_*.cpp, blit.h, jit\x86\comp*.cpp,
+  ...). The solution has no project dependencies, so a parallel solution
+  build would run them in any order, alongside the winuae build. This file
+  builds them one by one, in the order upstream's README gives:
+
+    msbuild generators.proj -p:Platform=ARM64
+    msbuild generators.proj -p:Platform=Win32 -p:Configuration=Release
+
+  Configuration defaults to FullRelease, Platform to the host architecture.
+  The generated sources are already in the repository; run this only when
+  table68k, the generators or their inputs change.
+-->
+<Project DefaultTargets="Build">
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">FullRelease</Configuration>
+    <Platform Condition="'$(Platform)' == '' and '$(PROCESSOR_ARCHITECTURE)' == 'ARM64'">ARM64</Platform>
+    <Platform Condition="'$(Platform)' == ''">Win32</Platform>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Generator Include="od-win32\build68k_msvc\build68k_msvc.vcxproj" />
+    <Generator Include="od-win32\genlinetoscr_msvc\genlinetoscr_msvc.vcxproj" />
+    <Generator Include="od-win32\genblitter_msvc\genblitter_msvc.vcxproj" />
+    <Generator Include="od-win32\gencpu_msvc\gencpu_msvc.vcxproj" />
+    <Generator Include="od-win32\gencomp_msvc\gencomp_msvc.vcxproj" />
+  </ItemGroup>
+
+  <Target Name="Build">
+    <MSBuild Projects="@(Generator)" Targets="Rebuild" BuildInParallel="false"
+             Properties="Configuration=$(Configuration);Platform=$(Platform)" />
+  </Target>
+</Project>

@@ -56,6 +56,31 @@
   </Target>
 
   <!--
+    Code generators: upstream's ARM64 configurations of build68k, genlinetoscr,
+    genblitter, gencpu and gencomp are copies of the Win32 ones. They link with
+    /MACHINE:I386 and without ASLR (not allowed for ARM64), and put their object
+    files into the .\Release\ folder the Win32 build also uses. Fix that for a
+    native ARM64 build; generators.proj builds them in the required order.
+  -->
+  <PropertyGroup>
+    <_WinUAEIsGenerator Condition="'$(MSBuildProjectName)' == 'build68k_msvc' or '$(MSBuildProjectName)' == 'genlinetoscr_msvc' or '$(MSBuildProjectName)' == 'genblitter_msvc' or '$(MSBuildProjectName)' == 'gencpu_msvc' or '$(MSBuildProjectName)' == 'gencomp_msvc'">true</_WinUAEIsGenerator>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(_WinUAEIsGenerator)' == 'true' and '$(Platform)' == 'ARM64'">
+    <ClCompile>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(MSBuildProjectName).pch</PrecompiledHeaderOutputFile>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+    </ClCompile>
+    <Link>
+      <AdditionalOptions>$([System.Text.RegularExpressions.Regex]::Replace('%(Link.AdditionalOptions)', '(?i)/MACHINE:I386', ''))</AdditionalOptions>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
+      <ProgramDatabaseFile>$(IntDir)$(MSBuildProjectName).pdb</ProgramDatabaseFile>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!--
     Optional ARM64 libraries built by deps-build\build-deps.ps1: when one is
     present, link it and define ARM64_WITH_*, which keeps od-win32\sysconfig.h
     from disabling the feature on ARM64.
