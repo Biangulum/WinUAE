@@ -45,4 +45,23 @@
     <MSBuild Projects="@(Generator)" Targets="Rebuild" BuildInParallel="false"
              Properties="Configuration=$(Configuration);Platform=$(Platform)" />
   </Target>
+
+  <!--
+    CPU tester test generator (cputest\readme.txt):
+
+      msbuild generators.proj -t:CpuTester -p:Platform=ARM64
+
+    Runs gencpu built with CPU_TESTER=1, which writes the test CPU core
+    (cpuemu_9x_test.cpp, cpustbl_test.cpp, cputbl_test.h, ignored by git), and
+    then builds cputestgen (od-win32\cputester), which only has Release and
+    Test configurations. cputestgen64.exe reads cputestgen.ini from the current
+    folder and does not create the folder its "path" names (data\ by default);
+    it crashes if that folder is missing.
+  -->
+  <Target Name="CpuTester">
+    <MSBuild Projects="od-win32\gencpu_msvc\gencpu_msvc.vcxproj" Targets="Rebuild"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);WinUAECpuTester=true" />
+    <MSBuild Projects="od-win32\cputester\cputester.vcxproj" Targets="Rebuild"
+             Properties="Configuration=Release;Platform=$(Platform)" />
+  </Target>
 </Project>

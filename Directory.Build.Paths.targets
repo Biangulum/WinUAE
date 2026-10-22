@@ -81,6 +81,37 @@
   </ItemDefinitionGroup>
 
   <!--
+    CPU tester (cputest\readme.txt): its CPU core comes from gencpu built with
+    CPU_TESTER set to 1, which upstream does by editing gencpu.cpp. With
+    WinUAECpuTester=true (generators.proj, target CpuTester), gencpu is built
+    from a copy of gencpu.cpp with that line changed, in its own IntDir.
+  -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'gencpu_msvc' and '$(WinUAECpuTester)' == 'true'">
+    <IntDir>$(Platform)\$(Configuration)\cputester\</IntDir>
+    <_WinUAEGencpuSource>$(MSBuildProjectDirectory)\..\..\gencpu.cpp</_WinUAEGencpuSource>
+    <_WinUAEGencpuTesterSource>$(MSBuildProjectDirectory)\$(IntDir)gencpu.cpp</_WinUAEGencpuTesterSource>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'gencpu_msvc' and '$(WinUAECpuTester)' == 'true'">
+    <ClCompile Remove="..\..\gencpu.cpp" />
+    <ClCompile Include="$(_WinUAEGencpuTesterSource)" />
+  </ItemGroup>
+  <Target Name="WinUAEMakeGencpuTesterSource" BeforeTargets="ClCompile"
+          Condition="'$(MSBuildProjectName)' == 'gencpu_msvc' and '$(WinUAECpuTester)' == 'true'">
+    <PropertyGroup>
+      <_WinUAEGencpuText>$([System.IO.File]::ReadAllText('$(_WinUAEGencpuSource)'))</_WinUAEGencpuText>
+    </PropertyGroup>
+    <Error Condition="!$(_WinUAEGencpuText.Contains('#define CPU_TESTER 0'))"
+           Text="gencpu.cpp no longer contains '#define CPU_TESTER 0'." />
+    <WriteLinesToFile File="$(_WinUAEGencpuTesterSource)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="$([MSBuild]::Escape($(_WinUAEGencpuText.Replace('#define CPU_TESTER 0', '#define CPU_TESTER 1'))))" />
+  </Target>
+
+  <!-- cputestgen's ARM64 configurations search the x64 VC and SDK libraries. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'cputester' and '$(Platform)' == 'ARM64'">
+    <LibraryPath>$(WinUAEDepsDir)lib\arm64;$(VC_LibraryPath_ARM64);$(WindowsSDK_LibraryPath_ARM64)</LibraryPath>
+  </PropertyGroup>
+
+  <!--
     Optional ARM64 libraries built by deps-build\build-deps.ps1: when one is
     present, link it and define ARM64_WITH_*, which keeps od-win32\sysconfig.h
     from disabling the feature on ARM64.
