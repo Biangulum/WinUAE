@@ -53,6 +53,9 @@
 #ifdef WITH_SPECIALMONITORS
 #include "specialmonitors.h"
 #endif
+#ifdef RETROPLATFORM
+#include "rp.h"
+#endif
 
 #define VPOSW_DISABLED 0
 #define VPOSW_DEBUG 0
@@ -1674,7 +1677,7 @@ static void update_display_vars(void)
 	int hiddentopv = (vblines - display_vblankstart_skip);
 	int hiddenbottomv = display_vblankend_skip;
 	int maxv = current_linear_vpos - (hiddentopv + hiddenbottomv) + 1;
-	linear_vpos_vb_end = current_linear_vpos_vb_end - display_vblankstart_skip - 1;
+	linear_vpos_vb_end = current_linear_vpos_vb_end - display_vblankstart_skip;
 	minfirstline = vblines - (display_vblankstart_skip > 0 ? display_vblankstart_skip : 0) - 1;
 	if (minfirstline < 2 * LINES_AFTER_VSYNC) {
 		minfirstline = 2 * LINES_AFTER_VSYNC;
@@ -1862,9 +1865,21 @@ void compute_framesync(void)
 	write_log(_T("\n"));
 }
 
+static bool need_forced_hardwired_mode(void)
+{
+	// VIDEO DAC 18 sets invalid programmed HSYNC and uses CSYNC output.
+	if (currprefs.monitoremu == MONITOREMU_VIDEODAC18) {
+		return true;
+	}
+	return false;
+}
+
 // do not switch to H/V sync cable mode if required programmed mode registers are uninitialized
 static bool valid_programmed_mode(void)
 {
+	if (need_forced_hardwired_mode()) {
+		return false;
+	}
 	if (beamcon0 & (BEAMCON0_VARHSYEN | BEAMCON0_VARCSYEN)) {
 		if (!programmed_register_accessed_h) {
 			return false;
@@ -2098,6 +2113,10 @@ static void init_beamcon0(void)
 	resetfulllinestate();
 	updatehwhpostable();
 	init_beamcon_delay = -1;
+
+#ifdef RETROPLATFORM
+	rp_screenmode_changed();
+#endif
 }
 
 static void init_hz_reset(void)
@@ -3652,10 +3671,6 @@ static void BPLCON0(uae_u16 v)
 		return;
 	}
 
-#ifdef WITH_SPECIALMONITORS
-	specialmonitor_gaudio((v & 0x0100) != 0, vpos);
-#endif
-
 	// UHRES, BYPASS
 	if (va & (0x0080 | 0x0020)) {
 		not_safe_mode |= 1;
@@ -4617,9 +4632,7 @@ static frame_time_t mavg(struct mavg_data *md, frame_time_t newval, int size)
 }
 
 #define MAVG_VSYNC_SIZE 128
-#ifdef DEBUGGER
-extern int log_vsync, debug_vsync_min_delay, debug_vsync_forced_delay;
-#endif
+int log_vsync, debug_vsync_min_delay, debug_vsync_forced_delay;
 static bool framewait(void)
 {
 	struct amigadisplay *ad = &adisplays[0];
@@ -5197,7 +5210,7 @@ static void check_interlace(void)
 	if (prevlofs[0] == prevlofs[2] && prevlofs[1] == ld && lof_display != prevlofs[0]) {
 		is = 1;
 	} else if (prevlofs[2] != lof_display && prevlofs[1] == lof_display && prevlofs[0] == ld) {
-		nis = 1;
+		nis = interlace_seen;
 	} else {
 		is = 0;
 	}
@@ -6640,6 +6653,10 @@ static void hsync_handler(bool vs)
 
 	}
 	hsync_handler_post(vs);
+
+#ifdef WITH_SPECIALMONITORS
+	specialmonitor_data(bplcon0, linear_vpos_start);
+#endif
 }
 
 static void audio_evhandler2(void)
@@ -10079,7 +10096,7 @@ static void vsync_mark(int cen)
 		}
 		vb_end_detect = false;
 		int off = currprefs.cs_hvcsync >= HVSYNC_SYNCPOS ? LINES_AFTER_VSYNC : linear_vb_offset;
-		minfirstline_linear = off;
+		minfirstline_linear = off - 1;
 	}
 }
 
@@ -10802,9 +10819,16 @@ static bool checkprevfieldlinestateequal(void)
 
 					if (doflickerfix_active()) {
 
-						bool borderline = scandoubled_vdiw[lvpos][0] || scandoubled_vdiw[lvpos][1] || scandoubled_vdiw[lvpos + 1][lof_display];
-						if (borderline) {
+						int borderline = scandoubled_vdiw[lvpos][0] || scandoubled_vdiw[lvpos][1] || scandoubled_vdiw[lvpos + 1][lof_display];
+						// make sure first odd/even line is blanked
+						if (vb_fast || vb_fast_prev) {
+							borderline = -1;
+						}
+
+						if (borderline > 0) {
 							draw_border_fast(lvpos);
+						} else if (borderline < 0)  {
+							draw_blank_fast(lvpos);
 						} else {
 							r = draw_line_fast(lvpos, bplpt, true);
 						}
@@ -10817,15 +10841,21 @@ static bool checkprevfieldlinestateequal(void)
 								if (l2->drawmode) {
 									uaecptr bplptx[MAX_PLANES];
 									bool skip = getbplptx(bplptx, planes, lvpos2, lof_store, true);
-									bool borderline = scandoubled_vdiw[lvpos2][0] || scandoubled_vdiw[lvpos2][1] || scandoubled_vdiw[lvpos2 + 1][lof_display];
-									if (skip || borderline) {
+									uae_s8 borderline = scandoubled_vdiw[lvpos2][0] || scandoubled_vdiw[lvpos2][1] || scandoubled_vdiw[lvpos2 + 1][lof_display];
+									if (borderline < 0) {
+										draw_blank_fast(lvpos2);
+									} else if (skip || borderline) {
 										draw_border_fast(lvpos2);
 									} else {
 										draw_line_fast(lvpos2, bplptx, false);
 									}
 								}
 							} else {
-								draw_border_fast(lvpos2);
+								if (borderline < 0) {
+									draw_blank_fast(lvpos2);
+								} else {
+									draw_border_fast(lvpos2);
+								}
 							}
 							lof_display ^= 1;
 						}
@@ -10906,11 +10936,16 @@ static void do_draw_line(void)
 					lof_display ^= 1;
 
 					// make sure last odd/even line is blanked
-					if (borderline < 0 && !vb_fast_prev) {
-						if (lof_display && linear_vpos_start_prev < MAX_SCANDOUBLED_LINES - 1) {
+					if (vb_fast && !vb_fast_prev) {
+						if (lof_display) {
 							lvpos = linear_vpos_start_prev;
 						}
 						draw_blank_fast(lvpos);
+						if (lof_display) {
+							lof_display ^= 1;
+							draw_blank_fast(lvpos);
+							lof_display ^= 1;
+						}
 					}
 
 				} else {
@@ -11186,9 +11221,9 @@ static void custom_trigger_start(void)
 	if (!ecs_agnus) {
 		vpos &= 511;
 	}
+	linear_vpos++;
 	linear_vpos_start_prev = linear_vpos_start;
 	linear_vpos_start = linear_vpos;
-	linear_vpos++;
 	linear_vpos_vblank_lines_cnt++;
 	draw_line_next_line = 0;
 
@@ -11293,8 +11328,12 @@ static void custom_trigger_start(void)
 			write_log("Chipset emulation inactive\n");
 			resetfulllinestate();
 		}
-		add_vsync_linecnt();
-		check_vsyncs_fast();
+		// Without the fast sync handler (cycle-exact memory), the normal
+		// sync path still counts lines and checks vsyncs.
+		if (eventtab[ev_sync].active) {
+			add_vsync_linecnt();
+			check_vsyncs_fast();
+		}
 		linear_hpos_prev[2] = linear_hpos_prev[1];
 		linear_hpos_prev[1] = linear_hpos_prev[0];
 		linear_hpos_prev[0] = maxhpos;

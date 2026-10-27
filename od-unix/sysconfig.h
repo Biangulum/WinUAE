@@ -18,19 +18,17 @@
 #define SUPPORT_LONG_DOUBLE 1
 #endif
 
-#if !defined(ARM64) && !defined(_M_ARM64) && !defined(__aarch64__) && \
-    (defined(__x86_64__) || defined(__amd64__) || defined(_M_X64) || \
-     defined(_M_IX86) || defined(i386) || defined(__i386) || \
-     defined(__i386__) || defined(_X86_))
-#define PCEM_VOODOO_CODEGEN 1
-#endif
-
 #define SUPPORT_THREADS 1
 #define WITH_THREADED_CPU 1
 #define MAX_DPATH 1000
 #define MAX_AMIGAMONITORS 4
 #define MAX_AMIGADISPLAYS 4
 #define NATMEM_OFFSET natmem_offset
+/* JIT direct is tested on ARM64 only (macOS and Linux). The x86-64 fault
+ * handler builds but hasn't been run on a Unix x86-64 host yet. */
+#if !defined(__aarch64__)
+#define NATMEM_NO_JIT_DIRECT 1
+#endif
 #define PACKAGE_STRING "WinUAE Unix"
 #if defined(UAE_HOST_DARWIN)
 #define WINUAE_UNIX_WINDOW_TITLE "WinUAE for macOS"
@@ -151,6 +149,13 @@
 #define __cdecl
 #endif
 
+/* qemuvga's own fallback uses typeof, which C++ doesn't have */
+#ifndef container_of
+#include <stddef.h>
+#define container_of(address, type, field) \
+	((type *)((char *)(address) - offsetof(type, field)))
+#endif
+
 #include <stdint.h>
 #include <limits.h>
 #include <arpa/inet.h>
@@ -204,22 +209,6 @@ typedef unsigned long long UINT64;
 #define INVALID_HANDLE_VALUE ((HANDLE)-1)
 #define INVALID_SOCKET (-1)
 #define SOCKET_ERROR (-1)
-
-#ifdef WINUAE_UNIX_WITH_PCEM
-#ifndef INFINITE
-#define INFINITE 0xffffffffU
-#endif
-#ifndef WAIT_OBJECT_0
-#define WAIT_OBJECT_0 0
-#endif
-#ifndef WAIT_TIMEOUT
-#define WAIT_TIMEOUT 258
-#endif
-HANDLE CreateSemaphore(void*, int, int, const char*);
-DWORD WaitForSingleObject(HANDLE, DWORD);
-BOOL ReleaseSemaphore(HANDLE, int, void*);
-BOOL CloseHandle(HANDLE);
-#endif
 
 #define Sleep sleep_millis
 #define stricmp strcasecmp

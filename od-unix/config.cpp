@@ -212,6 +212,14 @@ int target_cfgfile_load(struct uae_prefs *p, const TCHAR *filename, int type, in
     return cfgfile_load(p, filename, &loaded_type, 0, !isdefault);
 }
 
+int target_parse_compat_option(struct uae_prefs *p, const TCHAR *option, const TCHAR *value)
+{
+    if (!unix_config_is_compat_option(option)) {
+        return 0;
+    }
+    return target_parse_option(p, option, value, CONFIG_TYPE_HOST);
+}
+
 int target_parse_option(struct uae_prefs *p, const TCHAR *option, const TCHAR *value, int)
 {
     if (!_tcsicmp(option, _T("ui.recursive_roms"))) {
@@ -808,11 +816,10 @@ const TCHAR **uaenative_get_library_dirs(void)
 
 void stripslashes(TCHAR *p)
 {
-    while (*p) {
-        if (*p == '\\') {
-            *p = '/';
-        }
-        p++;
+    // Remove trailing path separators, but keep a bare root "/".
+    size_t len = _tcslen(p);
+    while (len > 1 && (p[len - 1] == '/' || p[len - 1] == '\\')) {
+        p[--len] = 0;
     }
 }
 
