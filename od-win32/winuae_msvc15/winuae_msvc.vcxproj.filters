@@ -256,6 +256,9 @@
     <ClCompile Include="..\..\cd32_fmv.cpp">
       <Filter>common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\cda_play.cpp">
+      <Filter>common</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\cdrom.cpp">
       <Filter>common</Filter>
     </ClCompile>
@@ -526,9 +529,6 @@
     <ClCompile Include="..\mp3decoder.cpp">
       <Filter>win32</Filter>
     </ClCompile>
-    <ClCompile Include="..\cda_play.cpp">
-      <Filter>win32</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\inputrecord.cpp">
       <Filter>common</Filter>
     </ClCompile>
@@ -691,7 +691,16 @@
     <ClCompile Include="..\..\logging.cpp">
       <Filter>common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\od-generic\clipboard.cpp">
+      <Filter>common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\od-generic\uaenet.cpp">
+      <Filter>common</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\od-generic\mman.cpp">
+      <Filter>common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\od-generic\registry_ini.cpp">
       <Filter>common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\cdtvcr.cpp">

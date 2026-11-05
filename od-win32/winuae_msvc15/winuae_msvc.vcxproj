@@ -1066,7 +1066,10 @@
     <ClCompile Include="..\..\kbmcu\m6805\m68emu.cpp" />
     <ClCompile Include="..\..\kbmcu\m6805\m68_ops.cpp" />
     <ClCompile Include="..\..\logging.cpp" />
+    <ClCompile Include="..\..\od-generic\clipboard.cpp" />
+    <ClCompile Include="..\..\od-generic\uaenet.cpp" />
     <ClCompile Include="..\..\od-generic\mman.cpp" />
+    <ClCompile Include="..\..\od-generic\registry_ini.cpp" />
     <ClCompile Include="..\..\luascript.cpp" />
     <ClCompile Include="..\..\mame\a2410.cpp" />
     <ClCompile Include="..\..\mame\tm34010\tms34010.cpp" />
@@ -3278,7 +3281,6 @@
     <ClCompile Include="..\blkdev_win32_spti.cpp" />
     <ClCompile Include="..\bsdsock.cpp" />
     <ClCompile Include="..\caps\caps_win32.cpp" />
-    <ClCompile Include="..\cda_play.cpp" />
     <ClCompile Include="..\clipboard_win32.cpp" />
     <ClCompile Include="..\darkmode.cpp" />
     <ClCompile Include="..\debug_win32.cpp" />
@@ -3334,6 +3336,7 @@
     <ClCompile Include="..\..\bsdsocket.cpp" />
     <ClCompile Include="..\..\catweasel.cpp" />
     <ClCompile Include="..\..\cd32_fmv.cpp" />
+    <ClCompile Include="..\..\cda_play.cpp" />
     <ClCompile Include="..\..\cdrom.cpp" />
     <ClCompile Include="..\..\cdtv.cpp" />
     <ClCompile Include="..\..\cia.cpp" />

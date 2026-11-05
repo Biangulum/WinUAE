@@ -1939,20 +1939,24 @@ static bool graffiti(struct vidbuffer *src, struct vidbuffer *dst)
 	srcend = src->bufmem + (((yend << VRES_MAX) - src->yoffset) / avidinfo->ychange) * src->rowbytes;
 	extrapix = 0;
 
-	dstbuf = dst->bufmem + (((ystart << VRES_MAX) - src->yoffset) / avidinfo->ychange) * dst->rowbytes + (((xstart << RES_MAX) - src->xoffset) / avidinfo->xchange) * dst->pixbytes;
+	int dxoff = (((xstart << RES_MAX) - src->xoffset) / avidinfo->xchange) * dst->pixbytes;
+	dstbuf = dst->bufmem + (((ystart << VRES_MAX) - src->yoffset) / avidinfo->ychange) * dst->rowbytes + dxoff;
 	dstbufend = dst->bufmemend - 8 * dst->width_allocated * dst->pixbytes;
 
 	y = 0;
 	while (srcend > srcbuf && dstbufend > dstbuf) {
 		uae_u8 *srcp = srcbuf + extrapix;
-		uae_u8 *srclineend = srcp + (src->inwidth - (xstart >> RES_MAX)) * src->pixbytes;
+		uae_u8 *srclineend = srcp + (src->inwidth - (sx / src->pixbytes)) * src->pixbytes;
 		uae_u8 *dstp = dstbuf;
+		uae_u8 *dstlineend = dstbuf - dxoff + dst->inwidth * dst->pixbytes;
 		bool erase = false;
 
-		uae_u16 dat = get_sm_data(ystart + (y >> 1));
+		int srcrow = (int)((srcbuf - src->bufmem) / src->rowbytes);
+		uae_u16 dat = get_sm_data(((srcrow * avidinfo->ychange) + src->yoffset) >> VRES_MAX);
 		bool active = (dat & 0x0100) != 0;
 
-		while (srcp < srclineend) {
+		while (srcp + xadd * 8 <= srclineend &&
+			dstp + dst->pixbytes * (8 << (avidinfo->xchange == 1 && !hires ? 1 : 0)) <= dstlineend) {
 			
 			uae_u8 mask = 0x80;
 			uae_u8 chunky[4] = { 0, 0, 0, 0 };
@@ -2955,6 +2959,9 @@ static struct opals *opal;
 
 static void opal_pixel(struct opals *opal, uae_u8 *d, uae_u8 *d2, uae_u8 *s, uae_u8 *s2, uae_u8 *s_genlock, struct vidbuffer *src, struct vidbuffer *dst, uae_u8 r, uae_u8 g, uae_u8 b, uae_u8 pr, bool doublelines, bool hires, bool nextpix)
 {
+	if (!d) {
+		return;
+	}
 	bool oa;
 	switch (opal->priority_stencil_mode | pr)
 	{
@@ -3167,12 +3174,18 @@ static bool opalvision(struct vidbuffer *src, struct vidbuffer *dst, bool double
 			uae_u8 newval = FIRGB(src, sa);
 			uae_u8 val = prev | newval;
 
-			uae_u8 *d = dstline + ((ax << 1) >> hdbl_shift) * dst->pixbytes;
+			int xpos = (ax << 1) >> hdbl_shift;
+			uae_u8 *d = dstline + xpos * dst->pixbytes;
 			uae_u8 *d2 = d + dst->rowbytes;
 
-			uae_u8 *s = line + ((ax << 1) >> hdbl_shift) * src->pixbytes;
+			uae_u8 *s = line + xpos * src->pixbytes;
 			uae_u8 *s2 = s + src->rowbytes;
-			uae_u8 *s_genlock = line_genlock ? line_genlock + ((ax << 1) >> hdbl_shift) : NULL;
+			uae_u8 *s_genlock = line_genlock ? line_genlock + xpos : NULL;
+			if (xpos >= src->inwidth || xpos >= dst->inwidth) {
+				// past the last visible pixel: decode only, do not draw
+				d = d2 = s = s2 = NULL;
+				s_genlock = NULL;
+			}
 
 			if (!oddeven) {
 

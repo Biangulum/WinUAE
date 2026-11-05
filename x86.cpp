@@ -3716,7 +3716,7 @@ void x86_xt_ide_bios(struct zfile *z, struct romconfig *rc)
 	mem_mapping_add(&x86_bios_mapping[5], addr, 0x4000, mem_read_romext2, mem_read_romextw2, mem_read_romextl2, mem_write_null, mem_write_nullw, mem_write_nulll, xtiderom, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM, 0);
 }
 
-static int x86_global_settings;
+static int x86_global_settings = -1;
 
 static int x86_device_config_int(const char *s)
 {
@@ -3749,6 +3749,10 @@ bool x86_device_config(const device_t *dev, const char *s, int *value)
 {
 	struct x86_bridge *xb = bridges[0];
 
+	if (dev == &mouse_ps2_device && !strcmp(s, "buttons") && xb) {
+		*value = xb->mouse_type == 2 ? 4 : 2;
+		return true;
+	}
 	if (x86_global_settings >= 0) {
 		// Sound Blaster
 		if (!strcmp(s, "base") || !strcmp(s, "irq") || !strcmp(s, "dma")) {
@@ -3765,10 +3769,6 @@ bool x86_device_config(const device_t *dev, const char *s, int *value)
 			return true;
 		}
 		return false;
-	}
-	if (dev == &mouse_ps2_device && !strcmp(s, "buttons") && xb) {
-		*value = xb->mouse_type == 2 ? 4 : 2;
-		return true;
 	}
 	return false;
 }
@@ -4092,6 +4092,7 @@ bool x86_bridge_init(struct autoconfig_info *aci, uae_u32 romtype, int type)
 
 	set_sb_emu(xb);
 	sound_pos_global = xb->sound_emu ? 0 : -1;
+	music_pos_global = sound_pos_global;
 
 	if (xb->type >= TYPE_2286) {
 		refresh_at_enable = 1;
@@ -4111,8 +4112,20 @@ bool x86_bridge_init(struct autoconfig_info *aci, uae_u32 romtype, int type)
 			xb->cmosfile = zfile_fopen(path, _T("wb"));
 		}
 		if (xb->cmosfile && xb->nvr) {
-			memset(xb->nvr->regs, 0, xb->cmossize);
-			zfile_fread(xb->nvr->regs, 1, xb->cmossize, xb->cmosfile);
+			uint8_t temp[256];
+			if (zfile_fread(temp, 1, xb->cmossize, xb->cmosfile) == xb->cmossize) {
+				memcpy(xb->nvr->regs, temp, xb->cmossize);
+				xb->nvr->is_new = 0;
+			}
+			if (xb->nvr->start)
+				xb->nvr->start(xb->nvr);
+			// register A: a saved CMOS with the divider stopped would keep the clock stopped
+			if ((xb->nvr->regs[10] & 0x70) == 0x00)
+				xb->nvr->regs[10] = (xb->nvr->regs[10] & 0x8f) | 0x20;
+			if (nvr_at_device.reset)
+				nvr_at_device.reset(xb->nvr);
+			if (nvr_at_device.speed_changed)
+				nvr_at_device.speed_changed(xb->nvr);
 		}
 	} else {
 		pit_devs[0].set_out_func(pit_devs[0].data, 1, pit_refresh_timer_xt);
@@ -4423,6 +4436,7 @@ void sound_reset()
 {
 	sound_handlers_num = 0;
 	sound_pos_global = 0;
+	music_pos_global = 0;
 	x86_sndbuffer[0] = outbuffer1;
 	x86_sndbuffer[1] = outbuffer2;
 	x86_sndbuffer_filled[0] = x86_sndbuffer_filled[1] = false;

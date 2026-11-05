@@ -4589,13 +4589,9 @@ static void denise_collide_sprites(uae_u8 apixel, uae_u32 vs)
 	}
 }
 
-static uae_u8 denise_render_sprites2(uae_u8 apixel, uae_u32 vs)
+static uae_u8 denise_sprite_colour(uae_u8 apixel, uae_u32 vs)
 {
-	uae_u8 c = vs >> 16;
 	uae_u16 v = (uae_u16)vs;
-	if (currprefs.collision_level) {
-		denise_collide_sprites(apixel, vs);
-	}
 	int *shift_lookup = bpldualpf ? (bpldualpfpri ? dblpf_ms2 : dblpf_ms1) : dblpf_ms;
 	int maskshift, plfmask;
 	maskshift = shift_lookup[apixel];
@@ -4655,6 +4651,14 @@ static uae_u8 denise_render_sprites2(uae_u8 apixel, uae_u32 vs)
 	return 0;
 }
 
+static uae_u8 denise_render_sprites2(uae_u8 apixel, uae_u32 vs)
+{
+	if (currprefs.collision_level) {
+		denise_collide_sprites(apixel, vs);
+	}
+	return denise_sprite_colour(apixel, vs);
+}
+
 static void autoscale_sprites(void)
 {
 #if AUTOSCALE_SPRITES
@@ -4673,11 +4677,23 @@ static void autoscale_sprites(void)
 #endif
 }
 
-static void get_shres_spr_pix(uae_u32 sv0, uae_u32 sv1, uae_u32 *dpix0, uae_u32 *dpix1)
+// sv0 covers the superhires pixels pf0 and pf1, sv1 covers pf2 and pf3
+static void get_shres_spr_pix(uae_u8 pf0, uae_u8 pf1, uae_u8 pf2, uae_u8 pf3, uae_u32 sv0, uae_u32 sv1, uae_u32 *dpix0, uae_u32 *dpix1)
 {
 	uae_u16 v;
-	uae_u8 p0 = denise_render_sprites2(0, sv0);
-	uae_u8 p1 = denise_render_sprites2(0, sv1);
+	// Sprite-playfield collisions see every playfield pixel under the sprite.
+	if (currprefs.collision_level) {
+		if (sv0) {
+			denise_collide_sprites(pf0, sv0);
+			denise_collide_sprites(pf1, sv0);
+		}
+		if (sv1) {
+			denise_collide_sprites(pf2, sv1);
+			denise_collide_sprites(pf3, sv1);
+		}
+	}
+	uae_u8 p0 = denise_sprite_colour(0, sv0);
+	uae_u8 p1 = denise_sprite_colour(0, sv1);
 	uae_u8 off = ((p1 & 3) * 4) + (p0 & 3) + ((p0 | p1) & 16);
 	if (p0) {
 		v = (denise_colors.color_regs_ecs[off] & 0xccc) << 0;
@@ -7507,11 +7523,13 @@ void draw_denise_border_line_fast(int gfx_ypos, bool blank, enum nln_how how, st
 
 		if (need_genlock_data && gbuf && total > 0) {
 			int max = addrdiff(xlinebuffer_genlock_end, gbuf);
-			total += GENLOCK_EXTRA_CLEAR;
-			if (max > 0 && total > max) {
-				total = max;
+			if (max > 0) {
+				total += GENLOCK_EXTRA_CLEAR;
+				if (total > max) {
+					total = max;
+				}
+				memset(gbuf, 0xff, total);
 			}
-			memset(gbuf, 0xff, total);
 		}
 	}
 }
@@ -7819,8 +7837,8 @@ void draw_denise_bitplane_line_fast(int gfx_ypos, enum nln_how how, struct lines
 			hbstop_offset += ww1;
 			int w = hbstop_offset - draw_startoffset - (1 << hresolution);
 			if (w > 0) {
-				if (buf1 + w > (uae_u32*)xlinebuffer_end) {
-					w = addrdiff((uae_u32*)xlinebuffer_end, buf1);
+				if (buf1p + w > (uae_u32*)xlinebuffer_end) {
+					w = addrdiff((uae_u32*)xlinebuffer_end, buf1p);
 				}
 				if (w > 0) {
 					memset(buf1p, DEBUG_TVOVERSCAN_H_GRAYSCALE_LEFT, w * sizeof(uae_u32));

@@ -200,6 +200,16 @@ static int activity_priority_index_from_value(int value, int defpri)
     }
 }
 
+static int activity_priority_value_from_index(int index)
+{
+    static const int values[] = { 1, 0, -1, -2 };
+    if (index < 0 || index > 3) {
+        index = 1;
+    }
+    return values[index];
+}
+
+
 static const TCHAR *configmult[] = { _T("1x"), _T("2x"), _T("3x"), _T("4x"), _T("5x"), _T("6x"), _T("7x"), _T("8x"), NULL };
 static const TCHAR *uaescsimode[] = { _T("SCSIEMU"), _T("SPTI"), _T("SPTI+SCSISCAN"), NULL };
 
@@ -212,12 +222,14 @@ int target_cfgfile_load(struct uae_prefs *p, const TCHAR *filename, int type, in
     return cfgfile_load(p, filename, &loaded_type, 0, !isdefault);
 }
 
-int target_parse_compat_option(struct uae_prefs *p, const TCHAR *option, const TCHAR *value)
+int target_parse_compat_option(struct uae_prefs *p, const TCHAR *option, const TCHAR *value, int type)
 {
     if (!unix_config_is_compat_option(option)) {
         return 0;
     }
-    return target_parse_option(p, option, value, CONFIG_TYPE_HOST);
+    /* Keep the caller's type so a hardware-only linked load applies only the
+     * hardware settings and a host-only one only the host settings. */
+    return target_parse_option(p, option, value, type);
 }
 
 int target_parse_option(struct uae_prefs *p, const TCHAR *option, const TCHAR *value, int)
@@ -585,6 +597,19 @@ void target_save_options(struct zfile *f, struct uae_prefs *p)
         scsimode = UAESCSI_SPTI;
     }
     cfgfile_target_dwrite_str(f, _T("uaescsimode"), uaescsimode[scsimode]);
+    cfgfile_target_write_bool(f, _T("middle_mouse"), (p->input_mouse_untrap & MOUSEUNTRAP_MIDDLEBUTTON) != 0);
+    cfgfile_target_dwrite(f, _T("active_priority"), _T("%d"), activity_priority_value_from_index(p->win32_active_capture_priority));
+    cfgfile_target_dwrite_bool(f, _T("active_not_captured_nosound"), p->win32_active_nocapture_nosound);
+    cfgfile_target_dwrite_bool(f, _T("active_not_captured_pause"), p->win32_active_nocapture_pause);
+    cfgfile_target_dwrite(f, _T("active_input"), _T("%d"), p->win32_active_input);
+    cfgfile_target_dwrite(f, _T("inactive_priority"), _T("%d"), activity_priority_value_from_index(p->win32_inactive_priority));
+    cfgfile_target_dwrite_bool(f, _T("inactive_nosound"), p->win32_inactive_nosound);
+    cfgfile_target_dwrite_bool(f, _T("inactive_pause"), p->win32_inactive_pause);
+    cfgfile_target_dwrite(f, _T("inactive_input"), _T("%d"), p->win32_inactive_input);
+    cfgfile_target_dwrite(f, _T("iconified_priority"), _T("%d"), activity_priority_value_from_index(p->win32_iconified_priority));
+    cfgfile_target_dwrite_bool(f, _T("iconified_nosound"), p->win32_iconified_nosound);
+    cfgfile_target_dwrite_bool(f, _T("iconified_pause"), p->win32_iconified_pause);
+    cfgfile_target_dwrite(f, _T("iconified_input"), _T("%d"), p->win32_iconified_input);
     if (p->win32_rtgvblankrate <= 0) {
         cfgfile_target_dwrite_str(f, _T("rtg_vblank"),
             p->win32_rtgvblankrate == -1 ? _T("real") : (p->win32_rtgvblankrate == -2 ? _T("disabled") : _T("chipset")));

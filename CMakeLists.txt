@@ -1771,7 +1771,7 @@ if(WINUAE_UNIX_WITH_UAENET_PCAP)
     if(WINUAE_UNIX_PCAP_FOUND)
         set(WINUAE_UNIX_ENABLE_UAENET_PCAP ON)
         target_compile_definitions(winuae_unix_core_defs INTERFACE WITH_UAENET_PCAP=1)
-        list(APPEND WINUAE_UNIX_EXTRA_SOURCES od-unix/uaenet_unix.cpp)
+        list(APPEND WINUAE_UNIX_EXTRA_SOURCES od-generic/uaenet.cpp od-unix/uaenet_unix.cpp)
     else()
         message(STATUS "libpcap was not found; disabling native Unix packet networking")
     endif()
@@ -1794,7 +1794,6 @@ if(WINUAE_UNIX_WITH_NATIVE_CD)
         target_compile_definitions(winuae_unix_core_defs INTERFACE WITH_SCSI_IOCTL=1)
         list(APPEND WINUAE_UNIX_EXTRA_SOURCES
             od-unix/blkdev_unix_ioctl.cpp
-            od-unix/cda_play.cpp
         )
         if(APPLE)
             list(APPEND WINUAE_UNIX_EXTRA_LIBRARIES
@@ -2098,6 +2097,7 @@ set(WINUAE_CORE_SOURCES
     calc.cpp
     cd32_fmv.cpp
     cd32_fmv_genlock.cpp
+    cda_play.cpp
     cdrom.cpp
     cdtv.cpp
     cdtvcr.cpp
@@ -2205,7 +2205,9 @@ set(WINUAE_CORE_SOURCES
     softfloat/softfloat.cpp
     softfloat/softfloat_decimal.cpp
     softfloat/softfloat_fpsp.cpp
+    od-generic/clipboard.cpp
     od-generic/mman.cpp
+    od-generic/registry_ini.cpp
     od-unix/charset.cpp
     od-unix/clipboard.cpp
     od-unix/config.cpp
@@ -2225,6 +2227,7 @@ set(WINUAE_CORE_SOURCES
     od-unix/registry.cpp
     od-unix/romscan.cpp
     od-unix/rtg.cpp
+    od-unix/scaler.cpp
     od-unix/screenshot.cpp
     od-unix/serial.cpp
     od-unix/sound.cpp
@@ -2320,6 +2323,7 @@ winuae_unix_register_test(winuae_unix_path_expand_test)
 
 add_executable(winuae_unix_registry_test EXCLUDE_FROM_ALL
     od-unix/registry.cpp
+    od-generic/registry_ini.cpp
     od-unix/registry_test.cpp
     ini.cpp
     missing.cpp
@@ -2327,6 +2331,7 @@ add_executable(winuae_unix_registry_test EXCLUDE_FROM_ALL
 target_include_directories(winuae_unix_registry_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 winuae_unix_register_test(winuae_unix_registry_test)
 
@@ -2341,6 +2346,29 @@ target_include_directories(winuae_unix_threading_test PRIVATE
 )
 target_link_libraries(winuae_unix_threading_test PRIVATE pthread)
 winuae_unix_register_test(winuae_unix_threading_test)
+
+add_executable(winuae_unix_clipboard_test EXCLUDE_FROM_ALL
+    od-generic/clipboard.cpp
+    od-generic/clipboard_test.cpp
+)
+target_include_directories(winuae_unix_clipboard_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_clipboard_test)
+
+add_executable(winuae_unix_uaenet_test EXCLUDE_FROM_ALL
+    od-generic/uaenet.cpp
+    od-generic/uaenet_test.cpp
+)
+target_include_directories(winuae_unix_uaenet_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(winuae_unix_uaenet_test PRIVATE pthread)
+winuae_unix_register_test(winuae_unix_uaenet_test)
 
 add_executable(winuae_unix_serial_tx_test EXCLUDE_FROM_ALL
     od-unix/serial_tx_test.cpp
