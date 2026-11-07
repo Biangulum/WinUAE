@@ -9,7 +9,8 @@ powershell -ExecutionPolicy Bypass -File deps-build\build-deps.ps1
 powershell -ExecutionPolicy Bypass -File deps-build\build-deps.ps1 -Only capsimg
 ```
 
-Requirements: Visual Studio 2026 with the ARM64 C++ build tools, and git.
+Requirements: Visual Studio 2026 with the ARM64 C++ build tools and the
+"C++ CMake tools for Windows" component, and git.
 
 | Folder | Content | In git |
 |---|---|---|
@@ -17,10 +18,14 @@ Requirements: Visual Studio 2026 with the ARM64 C++ build tools, and git.
 | `deps\build\<name>\` | intermediate build files | no |
 | `deps\bin\arm64\` | runtime DLLs loaded from the executable folder | no |
 | `deps\bin\arm64\plugins\` | plugin DLLs | no |
-| `deps-build\` | this script and the build shims | yes |
+| `deps\bin\arm64\licenses\<name>\` | each library's licence text | no |
+| `deps-build\` | this script, the build shims and the package README | yes |
 
 After every ARM64 build of winuae, `Directory.Build.Paths.targets` copies
-`deps\bin\arm64\` into `out\`.
+`deps\bin\arm64\` into `out\`. The CI workflow adds `COPYING.txt` and
+`README.txt` (from `package-readme.txt`, with the source commit) to the
+package. The fork's MSBuild settings are not applied to the CMake projects in
+`deps\build\`.
 
 ## Components
 
@@ -32,15 +37,15 @@ After every ARM64 build of winuae, `Directory.Build.Paths.targets` copies
 | `lua` | `deps\lib\arm64\luastatic.lib` | [Lua](https://www.lua.org/) 5.2.4 | MIT |
 | `enet` | `deps\lib\arm64\enet.lib` | [ENet](http://enet.bespin.org/) 1.2 | MIT |
 | `openal` | `OpenAL32.dll`, `deps\lib\arm64\OpenAL32.lib` | [OpenAL Soft](https://github.com/kcat/openal-soft) 1.25.2 | LGPL 2.1 |
-| `floppybridge` | `plugins\FloppyBridge_arm64.dll` | [FloppyDriveBridge](https://github.com/RobSmithDev/FloppyDriveBridge) `710fa15` (1.6.0.4) | MPL 2.0 / GPL 2 or later |
+| `floppybridge` | `plugins\FloppyBridge_arm64.dll` | [FloppyDriveBridge](https://github.com/RobSmithDev/FloppyDriveBridge) `710fa15` (1.6.0.5) | MPL 2.0 / GPL 2 or later |
 
 Archives are checked against a pinned SHA-256, git sources against a pinned
 commit. All DLLs use the static C runtime, so no Visual C++ redistributable
 is needed.
 
-The static libraries (`lua`, `enet`, `openal`) are optional:
-`Directory.Build.Paths.targets` links each one only when it exists in
-`deps\lib\arm64\` and then defines `ARM64_WITH_LUA` / `ARM64_WITH_ENET` /
+The libraries linked into winuae (`lua` and `enet` statically, `openal`
+through its import library) are optional: `Directory.Build.Paths.targets`
+links each one only when it exists in `deps\lib\arm64\` and then defines `ARM64_WITH_LUA` / `ARM64_WITH_ENET` /
 `ARM64_WITH_OPENAL`, which keep `od-win32\sysconfig.h` from disabling Lua
 scripting, the serial port over UDP and OpenAL sound on ARM64. Without them
 the ARM64 build behaves like upstream's.
@@ -56,7 +61,9 @@ Notes:
   licence): `unistd.h`, `dirent.h` and `config.h` stand-ins, a `DllMain`
   that initialises the library on load like the original Windows DLL, and
   the export list. If you redistribute the resulting DLL, the SPS licence
-  requires the complete source, including these files.
+  requires the complete source, including these files. The pinned commit
+  only points to the source distribution's `LICENCE.TXT`, so the script takes
+  that text from the repository's later commit `ed4cb09`.
 - **unrar**, **floppybridge**: their Visual Studio projects have no ARM64
   configuration; the script compiles the projects' sources with the same
   settings.

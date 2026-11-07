@@ -2,8 +2,9 @@
 > [WinUAE](https://www.winuae.net/) by Toni Wilen. The upstream project is
 > available at [github.com/tonioni/WinUAE](https://github.com/tonioni/WinUAE).
 >
-> Goals of this fork: building with Visual Studio 2026, x64 builds and native
-> Arm64 (Windows on Arm) builds.
+> Goal of this fork: a complete native Arm64 build of WinUAE for Windows 11 on
+> Arm, including the third-party libraries and plugins that upstream ships
+> only for x86/x64.
 >
 > The code is licensed under the GNU General Public License, version 2
 > (see [COPYING](COPYING)).

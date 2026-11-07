@@ -14,7 +14,8 @@
 #
 # Like upstream's build-winuae-binary.yml, it cross-compiles on an x64 runner
 # with the preinstalled Visual Studio. The artifact contains out\ without
-# winuae.ini (whose presence switches WinUAE to portable mode).
+# winuae.ini (whose presence switches WinUAE to portable mode), plus COPYING,
+# a README naming the source commit, and the third-party licence texts.
 
 name: Fork ARM64 package
 
@@ -23,6 +24,9 @@ on:
   push:
     branches:
       - vs2026-arm64
+
+permissions:
+  contents: read
 
 jobs:
   Build-WinUAE-ARM64-package:
@@ -56,9 +60,15 @@ jobs:
         call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat"
         msbuild /m /p:Platform=ARM64 /p:Configuration=FullRelease winuae_arm64.slnf
 
-    - name: Remove portable mode marker
+    - name: Add licence and source information, remove portable mode marker
       shell: powershell
-      run: Remove-Item out\winuae.ini -ErrorAction SilentlyContinue
+      run: |
+        $ErrorActionPreference = 'Stop'
+        Copy-Item COPYING out\COPYING.txt
+        $readme = (Get-Content -Raw deps-build\package-readme.txt) + "Source: https://github.com/$env:GITHUB_REPOSITORY/tree/$env:GITHUB_SHA`n"
+        $readme = $readme -replace "`r?`n", "`r`n"
+        Set-Content -Path out\README.txt -Value $readme -Encoding ascii -NoNewline
+        Remove-Item out\winuae.ini -ErrorAction SilentlyContinue
 
     - uses: actions/upload-artifact@v4
       with:

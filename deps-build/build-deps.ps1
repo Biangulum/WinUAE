@@ -15,9 +15,10 @@
   Every library is fetched at a pinned commit into deps\src\<name>, built in
   deps\build\<name>, and its runtime files are installed into deps\bin\arm64\
   (DLLs WinUAE loads from the executable folder) or deps\bin\arm64\plugins\
-  (plugin DLLs). Directory.Build.Paths.targets copies deps\bin\arm64\ into
-  out\ after every ARM64 build of winuae. The third-party sources are not
-  part of this repository; only the files in deps-build\ are.
+  (plugin DLLs), with each library's licence text in deps\bin\arm64\licenses\.
+  Directory.Build.Paths.targets copies deps\bin\arm64\ into out\ after every
+  ARM64 build of winuae. The third-party sources are not part of this
+  repository; only the files in deps-build\ are.
 
   Usage:
     powershell -ExecutionPolicy Bypass -File deps-build\build-deps.ps1
@@ -38,20 +39,27 @@ $SrcDir = Join-Path $Deps 'src'
 $BuildDir = Join-Path $Deps 'build'
 $BinDir = Join-Path $Deps 'bin\arm64'
 $PluginDir = Join-Path $BinDir 'plugins'
+$LicenceDir = Join-Path $BinDir 'licenses'
 $LibDir = Join-Path $Deps 'lib\arm64'
 
 # --- toolchain --------------------------------------------------------------
 
 $VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-$VsPath = & $VsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
-if (-not $VsPath) { throw 'Visual Studio with the ARM64 C++ build tools was not found.' }
+$VsPath = & $VsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
+if (-not $VsPath) { throw 'Visual Studio with the ARM64 C++ build tools and the C++ CMake tools was not found.' }
 $CMake = Join-Path $VsPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+if (-not (Test-Path $CMake)) { throw "CMake was not found at $CMake." }
 $CMakeGenerator = 'Visual Studio 18 2026'
 if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {
 	$VcVars = Join-Path $VsPath 'VC\Auxiliary\Build\vcvarsarm64.bat'
 } else {
 	$VcVars = Join-Path $VsPath 'VC\Auxiliary\Build\vcvarsamd64_arm64.bat'
 }
+
+# Windows' own tar and curl; a Git for Windows shell puts its GNU tar, which
+# does not understand C:\ paths, first in PATH.
+$Tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+$Curl = Join-Path $env:SystemRoot 'System32\curl.exe'
 
 function Invoke-Native([string]$Exe, [string[]]$Arguments) {
 	& $Exe @Arguments
@@ -91,13 +99,13 @@ function Get-Archive([string]$Name, [string]$Url, [string]$Sha256) {
 	New-Item -ItemType Directory -Force $dlDir | Out-Null
 	$file = Join-Path $dlDir ([IO.Path]::GetFileName($Url))
 	if (-not (Test-Path $file) -or (Get-FileHash -Algorithm SHA256 $file).Hash -ne $Sha256) {
-		Invoke-Native curl.exe @('-sfL', '-o', $file, $Url)
+		Invoke-Native $Curl @('-sfL', '--retry', '3', '-o', $file, $Url)
 	}
 	$hash = (Get-FileHash -Algorithm SHA256 $file).Hash
 	if ($hash -ne $Sha256) { throw "$file has SHA-256 $hash, expected $Sha256" }
 	$dir = Join-Path $SrcDir $Name
 	New-CleanDir $dir
-	Invoke-Native tar.exe @('-xf', $file, '-C', $dir)
+	Invoke-Native $Tar @('-xf', $file, '-C', $dir)
 	$top = @(Get-ChildItem $dir)
 	if ($top.Count -eq 1 -and $top[0].PSIsContainer) { return $top[0].FullName }
 	return $dir
@@ -114,6 +122,13 @@ function Install-File([string]$From, [string]$ToDir, [string]$Name) {
 	Write-Host "  installed $(Join-Path $ToDir $Name)"
 }
 
+# Copies licence files into deps\bin\arm64\licenses\$Component\, keeping their names.
+function Install-Licence([string]$Component, [string[]]$Files) {
+	$dir = Join-Path $LicenceDir $Component
+	New-CleanDir $dir
+	foreach ($file in $Files) { Install-File $file $dir ([IO.Path]::GetFileName($file)) }
+}
+
 # --- components -------------------------------------------------------------
 
 # PortAudio v19.7.0 (MIT-style licence). WinUAE delay-loads portaudio_arm64.dll
@@ -128,14 +143,19 @@ function Build-PortAudio {
 		'-DPA_BUILD_STATIC=OFF', '-DCMAKE_POLICY_VERSION_MINIMUM=3.5')
 	Invoke-Native $CMake @('--build', $build, '--config', 'Release')
 	Install-File (Join-Path $build 'Release\portaudio.dll') $BinDir 'portaudio_arm64.dll'
+	Install-Licence 'portaudio' @((Join-Path $src 'LICENSE.txt'))
 }
 
 # SPS decoder library 5.1 (CAPSImg, SPS licence: non-commercial use only),
 # the original source as imported into FrodeSolheim/capsimg. That source was
 # already ported to Unix, so it is compiled unchanged with the MSVC shims in
 # deps-build\capsimg (MIT), which also provide DllMain and the export list.
+# The imported commit only points to LICENCE.TXT of the source distribution,
+# which the repository added later; it is taken from a pinned later commit.
 function Build-CapsImg {
 	$src = Get-Source 'capsimg' 'https://github.com/FrodeSolheim/capsimg.git' '229374e931033f4970de8a042e2bb5b86ef3b318'
+	$licenceCommit = 'ed4cb0912fb1a2a0d5203111c6f6abd50d411b56'
+	Invoke-Native git @('-C', $src, 'fetch', '-q', '--depth', '1', 'origin', $licenceCommit)
 	$shim = Join-Path $PSScriptRoot 'capsimg'
 	$build = Join-Path $BuildDir 'capsimg'
 	New-CleanDir $build
@@ -154,6 +174,11 @@ function Build-CapsImg {
 		($includes -join ' ') + ' ' + ($sources -join ' '))
 	Invoke-VcCmd $build "link /nologo /DLL /OPT:REF /OPT:ICF /DEF:`"$shim\capsimg.def`" /OUT:CAPSImg.dll *.obj kernel32.lib"
 	Install-File (Join-Path $build 'CAPSImg.dll') $PluginDir 'CAPSImg_arm64.dll'
+	$spsLicence = Join-Path $build 'LICENCE.txt'
+	# cmd.exe redirection keeps the file's bytes (it is not UTF-8).
+	cmd.exe /c "git -C `"$src`" show ${licenceCommit}:LICENCE.txt > `"$spsLicence`""
+	if ($LASTEXITCODE -ne 0) { throw 'Could not read the SPS licence text.' }
+	Install-Licence 'capsimg' @($spsLicence, (Join-Path $shim 'LICENSE-shims.txt'))
 }
 
 # UnRAR 7.3.1 DLL (UnRAR freeware licence). Its Visual Studio project has no
@@ -175,6 +200,7 @@ function Build-UnRAR {
 	Invoke-VcCmd $build ("link /nologo /DLL /OPT:REF /OPT:ICF /DEF:`"$src\dll.def`" /OUT:unrar.dll *.obj dll.res " +
 		'kernel32.lib user32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib')
 	Install-File (Join-Path $build 'unrar.dll') $PluginDir 'unrar_arm64.dll'
+	Install-Licence 'unrar' @((Join-Path $src 'license.txt'))
 }
 
 # Lua 5.2.4 (MIT) as the static luastatic.lib. deps\include carries the
@@ -190,6 +216,18 @@ function Build-Lua {
 	Invoke-VcCmd $build ("cl /nologo /c /O2 /MT /TP /EHsc /W3 /wd4996 /MP /DLUA_COMPAT_ALL " + ($sources -join ' '))
 	Invoke-VcCmd $build 'lib /nologo /OUT:luastatic.lib *.obj'
 	Install-File (Join-Path $build 'luastatic.lib') $LibDir 'luastatic.lib'
+	# Lua ships its licence only as the comment at the end of lua.h.
+	$luaH = Get-Content (Join-Path $src 'src\lua.h')
+	$start = [array]::FindLastIndex($luaH, [Predicate[string]] { param($l) $l -like '* Copyright (C) 1994-*' })
+	if ($start -lt 0) { throw 'Lua licence comment not found in lua.h.' }
+	$licence = @()
+	foreach ($line in $luaH[$start..($luaH.Count - 1)]) {
+		if ($line -match '^\*+/$') { break }
+		$licence += $line -replace '^\* ?', ''
+	}
+	$luaLicence = Join-Path $build 'LICENSE.txt'
+	Set-Content -Path $luaLicence -Value $licence -Encoding ascii
+	Install-Licence 'lua' @($luaLicence)
 }
 
 # ENet 1.2 (MIT) as the static enet.lib, used for the serial port over UDP.
@@ -204,6 +242,7 @@ function Build-ENet {
 	Invoke-VcCmd $build ("cl /nologo /c /O2 /MT /W3 /wd4996 /wd4244 /wd4267 /DWIN32 /I`"$src\include`" " + ($sources -join ' '))
 	Invoke-VcCmd $build 'lib /nologo /OUT:enet.lib *.obj'
 	Install-File (Join-Path $build 'enet.lib') $LibDir 'enet.lib'
+	Install-Licence 'enet' @((Join-Path $src 'LICENSE'))
 }
 
 # OpenAL Soft 1.25.2 (LGPL 2.1, used as a separate DLL). Installs the import
@@ -218,9 +257,10 @@ function Build-OpenAL {
 	Invoke-Native $CMake @('--build', $build, '--config', 'Release', '--target', 'OpenAL')
 	Install-File (Join-Path $build 'Release\OpenAL32.dll') $BinDir 'OpenAL32.dll'
 	Install-File (Join-Path $build 'Release\OpenAL32.lib') $LibDir 'OpenAL32.lib'
+	Install-Licence 'openal-soft' @((Join-Path $src 'COPYING'), (Join-Path $src 'LICENSE-pffft'))
 }
 
-# FloppyBridge 1.6.0.4 (MPL 2.0 / GPL 2 or later), the revision upstream's
+# FloppyBridge 1.6.0.5 (MPL 2.0 / GPL 2 or later), the revision upstream's
 # tools\build-floppybridge.sh pins for Unix. Its Visual Studio project has no
 # ARM64 configuration, so the project's sources and settings are compiled
 # directly. The ARM64 WinUAE build looks for FloppyBridge_arm64.dll.
@@ -242,6 +282,7 @@ function Build-FloppyBridge {
 	Invoke-VcCmd $build ('link /nologo /DLL /OPT:REF /OPT:ICF /OUT:FloppyBridge.dll *.obj Resource.res ' +
 		'kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib shell32.lib advapi32.lib ole32.lib')
 	Install-File (Join-Path $build 'FloppyBridge.dll') $PluginDir 'FloppyBridge_arm64.dll'
+	Install-Licence 'floppybridge' @((Join-Path $src 'GPL2.txt'), (Join-Path $src 'MPL2.txt'))
 }
 
 # --- main -------------------------------------------------------------------

@@ -1,5 +1,6 @@
 ; Exports of the MSVC build of the SPS decoder library (CAPSImg),
 ; taken from CAPSImg/libcapsimage.map.
+; Copyright 2026 Drazen Hudoletnjak; MIT licence, see LICENSE-shims.txt.
 LIBRARY CAPSImg
 EXPORTS
 	CAPSInit
