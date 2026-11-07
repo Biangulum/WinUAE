@@ -88,7 +88,10 @@
     CPU tester (cputest\readme.txt): its CPU core comes from gencpu built with
     CPU_TESTER set to 1, which upstream does by editing gencpu.cpp. With
     WinUAECpuTester=true (generators.proj, target CpuTester), gencpu is built
-    from a copy of gencpu.cpp with that line changed, in its own IntDir.
+    from a copy of gencpu.cpp with that line changed, with its own IntDir and
+    object files. The executable keeps the normal build's path (gencpu.exe in
+    the project folder, which the post-build step runs), so generators.proj
+    deletes it afterwards; the next normal build then links it again.
   -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'gencpu_msvc' and '$(WinUAECpuTester)' == 'true'">
     <IntDir>$(Platform)\$(Configuration)\cputester\</IntDir>
@@ -99,6 +102,17 @@
     <ClCompile Remove="..\..\gencpu.cpp" />
     <ClCompile Include="$(_WinUAEGencpuTesterSource)" />
   </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'gencpu_msvc' and '$(WinUAECpuTester)' == 'true'">
+    <ClCompile>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(MSBuildProjectName).pch</PrecompiledHeaderOutputFile>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+    </ClCompile>
+    <Link>
+      <ProgramDatabaseFile>$(IntDir)$(MSBuildProjectName).pdb</ProgramDatabaseFile>
+    </Link>
+  </ItemDefinitionGroup>
   <Target Name="WinUAEMakeGencpuTesterSource" BeforeTargets="ClCompile"
           Condition="'$(MSBuildProjectName)' == 'gencpu_msvc' and '$(WinUAECpuTester)' == 'true'">
     <PropertyGroup>
@@ -110,7 +124,10 @@
                       Lines="$([MSBuild]::Escape($(_WinUAEGencpuText.Replace('#define CPU_TESTER 0', '#define CPU_TESTER 1'))))" />
   </Target>
 
-  <!-- cputestgen's ARM64 configurations search the x64 VC and SDK libraries. -->
+  <!--
+    cputestgen's Release|ARM64 configuration searches the x64 VC and SDK
+    libraries (Test|ARM64 is correct); use the ARM64 ones for both.
+  -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'cputester' and '$(Platform)' == 'ARM64'">
     <LibraryPath>$(WinUAEDepsDir)lib\arm64;$(VC_LibraryPath_ARM64);$(WindowsSDK_LibraryPath_ARM64)</LibraryPath>
   </PropertyGroup>

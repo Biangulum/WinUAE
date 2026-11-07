@@ -61,6 +61,9 @@
   <Target Name="CpuTester">
     <MSBuild Projects="od-win32\gencpu_msvc\gencpu_msvc.vcxproj" Targets="Rebuild"
              Properties="Configuration=$(Configuration);Platform=$(Platform);WinUAECpuTester=true" />
+    <!-- The CPU_TESTER gencpu.exe replaced the normal one; remove it so that
+         the next normal gencpu build links it again. -->
+    <Delete Files="od-win32\gencpu_msvc\gencpu.exe" />
     <MSBuild Projects="od-win32\cputester\cputester.vcxproj" Targets="Rebuild"
              Properties="Configuration=Release;Platform=$(Platform)" />
   </Target>
