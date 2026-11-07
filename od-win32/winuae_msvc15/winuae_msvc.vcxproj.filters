@@ -13,6 +13,9 @@
       <UniqueIdentifier>{e76a708a-933c-4af4-bad2-0820d79b6a78}</UniqueIdentifier>
       <Extensions>cpp;c;cxx;rc;def;r;odl;idl;hpj;bat</Extensions>
     </Filter>
+    <Filter Include="shared">
+      <UniqueIdentifier>{0c4574df-1b56-4dbf-9c5d-ae72a561a007}</UniqueIdentifier>
+    </Filter>
     <Filter Include="prowizard">
       <UniqueIdentifier>{dab2f6c7-d741-4002-b0c9-566a1536642a}</UniqueIdentifier>
     </Filter>
@@ -187,6 +190,9 @@
     <ClCompile Include="..\serial_win32.cpp">
       <Filter>win32</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\serial.cpp">
+      <Filter>common</Filter>
+    </ClCompile>
     <ClCompile Include="..\sounddep\sound.cpp">
       <Filter>win32</Filter>
     </ClCompile>
@@ -245,6 +251,9 @@
       <Filter>common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\blkdev_cdimage.cpp">
+      <Filter>common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\bsdsocket_results.cpp">
       <Filter>common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\bsdsocket.cpp">
@@ -337,6 +346,9 @@
     <ClCompile Include="..\..\fsdb.cpp">
       <Filter>common</Filter>
     </ClCompile>
+    <ClCompile Include="..\win32_filesys.cpp">
+      <Filter>win32</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\fsusage.cpp">
       <Filter>common</Filter>
     </ClCompile>
@@ -356,6 +368,9 @@
       <Filter>common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\gfxutil.cpp">
+      <Filter>common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\hardfile_cache.cpp">
       <Filter>common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\hardfile.cpp">
@@ -394,8 +409,8 @@
     <ClCompile Include="..\..\rommgr.cpp">
       <Filter>common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\sampler.cpp">
-      <Filter>common</Filter>
+    <ClCompile Include="..\sampler.cpp">
+      <Filter>win32</Filter>
     </ClCompile>
     <ClCompile Include="..\..\sana2.cpp">
       <Filter>common</Filter>
@@ -691,17 +706,35 @@
     <ClCompile Include="..\..\logging.cpp">
       <Filter>common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\od-generic\midi_parser.cpp">
+      <Filter>shared</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\od-generic\clipboard.cpp">
-      <Filter>common</Filter>
+      <Filter>shared</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\od-generic\target_defaults.cpp">
+      <Filter>shared</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\od-generic\focus.cpp">
+      <Filter>shared</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\od-generic\screenshot_common.cpp">
+      <Filter>shared</Filter>
     </ClCompile>
     <ClCompile Include="..\..\od-generic\uaenet.cpp">
-      <Filter>common</Filter>
+      <Filter>shared</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\od-generic\hostcfg.cpp">
+      <Filter>shared</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\od-generic\hostcfg_compat.cpp">
+      <Filter>shared</Filter>
     </ClCompile>
     <ClCompile Include="..\..\od-generic\mman.cpp">
-      <Filter>common</Filter>
+      <Filter>shared</Filter>
     </ClCompile>
     <ClCompile Include="..\..\od-generic\registry_ini.cpp">
-      <Filter>common</Filter>
+      <Filter>shared</Filter>
     </ClCompile>
     <ClCompile Include="..\..\cdtvcr.cpp">
       <Filter>common</Filter>
@@ -2058,11 +2091,21 @@
     <None Include="..\resources\xarcade-winuae.bmp">
       <Filter>win32\Resource Files</Filter>
     </None>
-    <None Include="..\resources\drive_click.wav" />
-    <None Include="..\resources\drive_snatch.wav" />
-    <None Include="..\resources\drive_spin.wav" />
-    <None Include="..\resources\drive_spinnd.wav" />
-    <None Include="..\resources\drive_startup.wav" />
+    <None Include="..\resources\drive_click.wav">
+      <Filter>win32\Resource Files</Filter>
+    </None>
+    <None Include="..\resources\drive_snatch.wav">
+      <Filter>win32\Resource Files</Filter>
+    </None>
+    <None Include="..\resources\drive_spin.wav">
+      <Filter>win32\Resource Files</Filter>
+    </None>
+    <None Include="..\resources\drive_spinnd.wav">
+      <Filter>win32\Resource Files</Filter>
+    </None>
+    <None Include="..\resources\drive_startup.wav">
+      <Filter>win32\Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\resources\winuae.rc">
@@ -2070,7 +2113,33 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\resources\resource.h" />
+    <ClInclude Include="..\..\od-generic\hostcfg.def">
+      <Filter>shared</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\uae\caps.h">
+      <Filter>common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\target_dlopen.h">
+      <Filter>common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\hostcfg.h">
+      <Filter>shared</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\hardfile_defaults.h">
+      <Filter>shared</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\serial_host.h">
+      <Filter>shared</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\cpu_selection.h">
+      <Filter>shared</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\cfgfile_mount.h">
+      <Filter>shared</Filter>
+    </ClInclude>
+    <ClInclude Include="..\resources\resource.h">
+      <Filter>win32\Resource Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="..\shaders\VertexShader.hlsl">
@@ -2105,6 +2174,8 @@
     <CustomBuild Include="..\fpux64_80.asm">
       <Filter>nasm</Filter>
     </CustomBuild>
-    <CustomBuild Include="..\fpux86_80.asm" />
+    <CustomBuild Include="..\fpux86_80.asm">
+      <Filter>nasm</Filter>
+    </CustomBuild>
   </ItemGroup>
 </Project>

@@ -9,9 +9,11 @@
 #include "sysconfig.h"
 #include "sysdeps.h"
 
+#ifdef WITH_ARCHIVES
+
 #ifdef _WIN32
 #include <windows.h>
-#include "win32.h"
+#include "uae/dlopen.h"
 #endif
 
 #include "options.h"
@@ -782,7 +784,7 @@ static int canrar (void)
 		{
 			HMODULE rarlib;
 
-			rarlib = WIN32_LoadLibrary (_T("unrar.dll"));
+			rarlib = uae_dlopen_plugin(_T("unrar"));
 			if (rarlib) {
 				TCHAR tmp[MAX_DPATH];
 				tmp[0] = 0;
@@ -965,7 +967,7 @@ static int arcacc_init (struct zfile *zf)
 {
 	if (arcacc_mod)
 		return 1;
-	arcacc_mod = WIN32_LoadLibrary (_T("archiveaccess.dll"));
+	arcacc_mod = uae_dlopen_plugin(_T("archiveaccess"));
 	if (!arcacc_mod) {
 		write_log (_T("failed to open archiveaccess.dll ('%s')\n"), zfile_getname (zf));
 		return 0;
@@ -2290,3 +2292,38 @@ struct zfile *archive_getzfile (struct znode *zn, unsigned int id, int flags)
 	}
 	return zf;
 }
+
+#else // WITH_ARCHIVES
+
+#include "zfile.h"
+#include "zarchive.h"
+
+struct zvolume *archive_directory_plain(struct zfile *) { return NULL; }
+struct zvolume *archive_directory_lha(struct zfile *) { return NULL; }
+struct zvolume *archive_directory_zip(struct zfile *) { return NULL; }
+struct zvolume *archive_directory_7z(struct zfile *) { return NULL; }
+struct zfile *archive_access_7z(struct znode *) { return NULL; }
+struct zvolume *archive_directory_rar(struct zfile *) { return NULL; }
+struct zfile *archive_access_rar(struct znode *) { return NULL; }
+struct zvolume *archive_directory_lzx(struct zfile *) { return NULL; }
+struct zfile *archive_access_lzx(struct znode *) { return NULL; }
+struct zvolume *archive_directory_arcacc(struct zfile *, unsigned int) { return NULL; }
+struct zvolume *archive_directory_adf(struct znode *, struct zfile *) { return NULL; }
+struct zvolume *archive_directory_rdb(struct zfile *) { return NULL; }
+struct zvolume *archive_directory_fat(struct zfile *) { return NULL; }
+struct zvolume *archive_directory_tar(struct zfile *) { return NULL; }
+struct zfile *archive_access_select(struct znode *, struct zfile *, unsigned int, int, int *retcode, int)
+{
+	if (retcode) {
+		*retcode = 0;
+	}
+	return NULL;
+}
+void archive_access_scan(struct zfile *, zfile_callback, void *, unsigned int) {}
+void archive_access_close(void *, unsigned int) {}
+struct zfile *archive_unpackzfile(struct zfile *zf) { return zf; }
+struct zfile *archive_access_lha(struct znode *) { return NULL; }
+struct zfile *archive_getzfile(struct znode *, unsigned int, int) { return NULL; }
+int isfat(uae_u8 *) { return 0; }
+
+#endif // WITH_ARCHIVES

@@ -45,6 +45,9 @@
 #include "sysdeps.h"
 #include "gdb_server.h"
 #include "options.h"
+#include "hostcfg.h"
+#include "uae/dlopen.h"
+#include "target_dlopen.h"
 #include "audio.h"
 #include "sound.h"
 #include "uae.h"
@@ -55,6 +58,7 @@
 #include "xwin.h"
 #include "keyboard.h"
 #include "inputdevice.h"
+#include "od-generic/focus.h"
 #include "drawing.h"
 #include "render.h"
 #include "picasso96_win.h"
@@ -177,7 +181,6 @@ HMODULE kerneldll;
 
 int pause_emulation;
 
-static int sound_closed;
 static int recapture;
 static int focus;
 static int mouseinside;
@@ -807,6 +810,11 @@ void setpriority (struct threadpriorities *pri)
 	}
 }
 
+void host_priority_set(int index)
+{
+	setpriority(&priorities[index]);
+}
+
 static void setcursorshape(int monid)
 {
 	if (currprefs.input_tablet && (currprefs.input_mouse_untrap & MOUSEUNTRAP_MAGIC) && currprefs.input_magic_mouse_cursor == MAGICMOUSE_NATIVE_ONLY) {
@@ -1143,12 +1151,7 @@ static void setmouseactive2(struct AmigaMonitor *mon, int active, bool allowpaus
 			wait_keyrelease();
 		}
 		inputdevice_acquire(TRUE);
-		setpriority (&priorities[currprefs.win32_active_capture_priority]);
-		if (currprefs.win32_active_nocapture_pause) {
-			resumepaused(2);
-		} else if (currprefs.win32_active_nocapture_nosound && sound_closed < 0) {
-			resumesoundpaused();
-		}
+		focus_mouse_captured();
 		setmaintitle(mon->monitor_id);
 #if KBHOOK
 		if (!hhook) {
@@ -1167,12 +1170,7 @@ static void setmouseactive2(struct AmigaMonitor *mon, int active, bool allowpaus
 		inputdevice_releasebuttons();
 	}
 	if (!active && allowpause) {
-		if (currprefs.win32_active_nocapture_pause) {
-			setpaused (2);
-		} else if (currprefs.win32_active_nocapture_nosound) {
-			setsoundpaused ();
-			sound_closed = -1;
-		}
+		focus_mouse_released();
 		setmaintitle(mon->monitor_id);
 	}
 #ifdef RETROPLATFORM
@@ -1194,8 +1192,6 @@ static int hotkeys[] = { VK_VOLUME_UP, VK_VOLUME_DOWN, VK_VOLUME_MUTE, -1 };
 
 static void winuae_active(struct AmigaMonitor *mon, HWND hwnd, int minimized)
 {
-	struct threadpriorities *pri;
-
 	//write_log (_T("winuae_active(%p,%d)\n"), hwnd, minimized);
 
 	monitor_off = 0;
@@ -1206,25 +1202,7 @@ static void winuae_active(struct AmigaMonitor *mon, HWND hwnd, int minimized)
 	timebegin ();
 
 	focus = mon->monitor_id + 1;
-	pri = &priorities[currprefs.win32_inactive_priority];
-	if (!minimized)
-		pri = &priorities[currprefs.win32_active_capture_priority];
-	setpriority(pri);
-
-	if (sound_closed) {
-		if (sound_closed < 0) {
-			resumesoundpaused ();
-		} else {
-			if (currprefs.win32_active_nocapture_pause) {
-				if (mouseactive)
-					resumepaused (2);
-			} else if (currprefs.win32_iconified_pause && !currprefs.win32_inactive_pause)
-				resumepaused (1);
-			else if (currprefs.win32_inactive_pause)
-				resumepaused (2);
-		}
-		sound_closed = 0;
-	}
+	focus_activated(minimized != 0, mouseactive != 0);
 #if 0
 	RegisterHotKey (mon->hAmigaWnd, IDHOT_SNAPDESKTOP, 0, VK_SNAPSHOT);
 	for (int i = 0; hotkeys[i] >= 0; i++)
@@ -1257,7 +1235,6 @@ static void winuae_active(struct AmigaMonitor *mon, HWND hwnd, int minimized)
 
 static void winuae_inactive(struct AmigaMonitor *mon, HWND hWnd, int minimized)
 {
-	struct threadpriorities *pri;
 	int wasfocus = focus;
 
 	//write_log (_T("winuae_inactive(%d)\n"), minimized);
@@ -1285,47 +1262,7 @@ static void winuae_inactive(struct AmigaMonitor *mon, HWND hWnd, int minimized)
 	wait_keyrelease ();
 	setmouseactive(mon->monitor_id, 0);
 	clipboard_active(mon->hAmigaWnd, 0);
-	pri = &priorities[currprefs.win32_inactive_priority];
-	if (!quit_program) {
-		if (minimized) {
-			pri = &priorities[currprefs.win32_iconified_priority];
-			if (currprefs.win32_iconified_pause) {
-				inputdevice_unacquire();
-				setpaused(1);
-				sound_closed = 1;
-			} else if (currprefs.win32_iconified_nosound) {
-				inputdevice_unacquire(currprefs.win32_iconified_input);
-				setsoundpaused();
-				sound_closed = -1;
-			} else {
-				inputdevice_unacquire(currprefs.win32_iconified_input);
-			}
-		} else if (mouseactive) {
-			inputdevice_unacquire();
-			if (currprefs.win32_active_nocapture_pause) {
-				setpaused (2);
-				sound_closed = 1;
-			} else if (currprefs.win32_active_nocapture_nosound) {
-				setsoundpaused ();
-				sound_closed = -1;
-			}
-		} else {
-			if (currprefs.win32_inactive_pause) {
-				inputdevice_unacquire();
-				setpaused(2);
-				sound_closed = 1;
-			} else if (currprefs.win32_inactive_nosound) {
-				inputdevice_unacquire(currprefs.win32_inactive_input);
-				setsoundpaused();
-				sound_closed = -1;
-			} else {
-				inputdevice_unacquire(currprefs.win32_inactive_input);
-			}
-		}
-	} else {
-		inputdevice_unacquire();
-	}
-	setpriority (pri);
+	focus_deactivated(minimized != 0, mouseactive != 0);
 #ifdef FILESYS
 	filesys_flush_cache ();
 #endif
@@ -1347,13 +1284,7 @@ void enablecapture(int monid)
 		return;
 	//write_log(_T("enablecapture\n"));
 	setmouseactive(monid, 1);
-	if (sound_closed < 0) {
-		resumesoundpaused();
-		sound_closed = 0;
-	}
-	if (currprefs.win32_inactive_pause || currprefs.win32_active_nocapture_pause) {
-		resumepaused(2);
-	}
+	focus_capture_enabled();
 }
 
 void disablecapture(void)
@@ -1361,13 +1292,7 @@ void disablecapture(void)
 	//write_log(_T("disablecapture\n"));
 	setmouseactive(0, 0);
 	focus = 0;
-	if (currprefs.win32_active_nocapture_pause && sound_closed == 0) {
-		setpaused (2);
-		sound_closed = 1;
-	} else if (currprefs.win32_active_nocapture_nosound && sound_closed == 0) {
-		setsoundpaused ();
-		sound_closed = -1;
-	}
+	focus_capture_disabled();
 }
 
 void gui_gameport_button_change (int port, int button, int onoff)
@@ -4559,9 +4484,7 @@ void target_default_options (struct uae_prefs *p, int type)
 	}
 }
 
-static const TCHAR *scsimode[] = { _T("SCSIEMU"), _T("SPTI"), _T("SPTI+SCSISCAN"), NULL };
 static const TCHAR *statusbarmode[] = { _T("none"), _T("normal"), _T("extended"), NULL };
-static const TCHAR *configmult[] = { _T("1x"), _T("2x"), _T("3x"), _T("4x"), _T("5x"), _T("6x"), _T("7x"), _T("8x"), NULL };
 
 static struct midiportinfo *getmidiport (struct midiportinfo **mi, int devid)
 {
@@ -4578,7 +4501,8 @@ void target_save_options (struct zfile *f, struct uae_prefs *p)
 {
 	struct midiportinfo *midp;
 
-	cfgfile_target_write_bool (f, _T("middle_mouse"), (p->input_mouse_untrap & MOUSEUNTRAP_MIDDLEBUTTON) != 0);
+	hostcfg_save_options(f, p);
+
 	cfgfile_target_dwrite_bool (f, _T("logfile"), p->win32_logfile);
 	cfgfile_target_dwrite_bool (f, _T("map_drives"), p->win32_automount_drives);
 	cfgfile_target_dwrite_bool (f, _T("map_drives_auto"), p->win32_automount_removable);
@@ -4590,21 +4514,6 @@ void target_save_options (struct zfile *f, struct uae_prefs *p)
 	sernametodev (p->sername);
 	cfgfile_target_dwrite_str_escape(f, _T("parallel_port"), p->prtname[0] ? p->prtname : _T("none"));
 
-	cfgfile_target_dwrite (f, _T("active_priority"), _T("%d"), priorities[p->win32_active_capture_priority].value);
-#if 0
-	cfgfile_target_dwrite (f, _T("active_not_captured_priority"), _T("%d"), priorities[p->win32_active_nocapture_priority].value);
-#endif
-	cfgfile_target_dwrite_bool(f, _T("active_not_captured_nosound"), p->win32_active_nocapture_nosound);
-	cfgfile_target_dwrite_bool(f, _T("active_not_captured_pause"), p->win32_active_nocapture_pause);
-	cfgfile_target_dwrite(f, _T("active_input"), _T("%d"), p->win32_active_input);
-	cfgfile_target_dwrite(f, _T("inactive_priority"), _T("%d"), priorities[p->win32_inactive_priority].value);
-	cfgfile_target_dwrite_bool(f, _T("inactive_nosound"), p->win32_inactive_nosound);
-	cfgfile_target_dwrite_bool(f, _T("inactive_pause"), p->win32_inactive_pause);
-	cfgfile_target_dwrite(f, _T("inactive_input"), _T("%d"), p->win32_inactive_input);
-	cfgfile_target_dwrite(f, _T("iconified_priority"), _T("%d"), priorities[p->win32_iconified_priority].value);
-	cfgfile_target_dwrite_bool(f, _T("iconified_nosound"), p->win32_iconified_nosound);
-	cfgfile_target_dwrite_bool(f, _T("iconified_pause"), p->win32_iconified_pause);
-	cfgfile_target_dwrite(f, _T("iconified_input"), _T("%d"), p->win32_iconified_input);
 	cfgfile_target_dwrite_bool(f, _T("inactive_iconify"), p->win32_minimize_inactive);
 	cfgfile_target_dwrite_bool(f, _T("active_capture_automatically"), p->win32_capture_always);
 	cfgfile_target_dwrite_bool(f, _T("start_iconified"), p->win32_start_minimized);
@@ -4638,13 +4547,8 @@ void target_save_options (struct zfile *f, struct uae_prefs *p)
 	cfgfile_target_dwrite (f, _T("rtg_scale_aspect_ratio"), _T("%d:%d"),
 		p->win32_rtgscaleaspectratio >= 0 ? (p->win32_rtgscaleaspectratio / ASPECTMULT) : -1,
 		p->win32_rtgscaleaspectratio >= 0 ? (p->win32_rtgscaleaspectratio & (ASPECTMULT - 1)) : -1);
-	if (p->win32_rtgvblankrate <= 0)
-		cfgfile_target_dwrite_str (f, _T("rtg_vblank"), p->win32_rtgvblankrate == -1 ? _T("real") : (p->win32_rtgvblankrate == -2 ? _T("disabled") : _T("chipset")));
-	else
-		cfgfile_target_dwrite (f, _T("rtg_vblank"), _T("%d"), p->win32_rtgvblankrate);
 	cfgfile_target_dwrite_bool (f, _T("borderless"), p->win32_borderless);
 	cfgfile_target_dwrite_bool (f, _T("blank_monitors"), p->win32_blankmonitors);
-	cfgfile_target_dwrite_str (f, _T("uaescsimode"), scsimode[p->win32_uaescsimode]);
 	cfgfile_target_dwrite_str (f, _T("statusbar"), statusbarmode[p->win32_statusbar]);
 	cfgfile_target_write (f, _T("soundcard"), _T("%d"), p->win32_soundcard);
 	if (p->win32_soundcard >= 0 && p->win32_soundcard < MAX_SOUND_DEVICES && sound_devices[p->win32_soundcard])
@@ -4655,7 +4559,6 @@ void target_save_options (struct zfile *f, struct uae_prefs *p)
 			cfgfile_target_write_str (f, _T("samplersoundcardname"), record_devices[p->win32_samplersoundcard]->cfgname);
 	}
 
-	cfgfile_target_dwrite (f, _T("cpu_idle"), _T("%d"), p->cpu_idle);
 	cfgfile_target_dwrite_bool (f, _T("notaskbarbutton"), p->win32_notaskbarbutton);
 	cfgfile_target_dwrite_bool (f, _T("nonotificationicon"), p->win32_nonotificationicon);
 	cfgfile_target_dwrite_bool (f, _T("always_on_top"), p->win32_main_alwaysontop);
@@ -4682,38 +4585,11 @@ void target_save_options (struct zfile *f, struct uae_prefs *p)
 	if (scsiromselected > 0)
 		cfgfile_target_write(f, _T("expansion_gui_page"), expansionroms[scsiromselected].name);
 
-	cfgfile_target_dwrite(f, _T("recording_width"), _T("%d"), p->aviout_width);
-	cfgfile_target_dwrite(f, _T("recording_height"), _T("%d"), p->aviout_height);
-	cfgfile_target_dwrite(f, _T("recording_x"), _T("%d"), p->aviout_xoffset);
-	cfgfile_target_dwrite(f, _T("recording_y"), _T("%d"), p->aviout_yoffset);
-	cfgfile_target_dwrite(f, _T("screenshot_width"), _T("%d"), p->screenshot_width);
-	cfgfile_target_dwrite(f, _T("screenshot_height"), _T("%d"), p->screenshot_height);
-	cfgfile_target_dwrite(f, _T("screenshot_x"), _T("%d"), p->screenshot_xoffset);
-	cfgfile_target_dwrite(f, _T("screenshot_y"), _T("%d"), p->screenshot_yoffset);
-	cfgfile_target_dwrite(f, _T("screenshot_min_width"), _T("%d"), p->screenshot_min_width);
-	cfgfile_target_dwrite(f, _T("screenshot_min_height"), _T("%d"), p->screenshot_min_height);
-	cfgfile_target_dwrite(f, _T("screenshot_max_width"), _T("%d"), p->screenshot_max_width);
-	cfgfile_target_dwrite(f, _T("screenshot_max_height"), _T("%d"), p->screenshot_max_height);
-	cfgfile_target_dwrite(f, _T("screenshot_output_width_limit"), _T("%d"), p->screenshot_output_width);
-	cfgfile_target_dwrite(f, _T("screenshot_output_height_limit"), _T("%d"), p->screenshot_output_height);
-	cfgfile_target_dwrite_str(f, _T("screenshot_mult_width"), configmult[p->screenshot_xmult]);
-	cfgfile_target_dwrite_str(f, _T("screenshot_mult_height"), configmult[p->screenshot_ymult]);
 }
 
 void target_restart (void)
 {
 	gui_restart ();
-}
-
-static int fetchpri (int pri, int defpri)
-{
-	int i = 0;
-	while (priorities[i].name) {
-		if (priorities[i].value == pri)
-			return i;
-		i++;
-	}
-	return defpri;
 }
 
 TCHAR *target_expand_environment (const TCHAR *path, TCHAR *out, int maxlen)
@@ -4745,41 +4621,23 @@ static const TCHAR *obsolete[] = {
 
 static int target_parse_option_hardware(struct uae_prefs *p, const TCHAR *option, const TCHAR *value)
 {
-	TCHAR tmpbuf[CONFIG_BLEN];
-
-	if (cfgfile_string(option, value, _T("rtg_vblank"), tmpbuf, sizeof tmpbuf / sizeof(TCHAR))) {
-		if (!_tcscmp(tmpbuf, _T("real"))) {
-			p->win32_rtgvblankrate = -1;
-			return 1;
-		}
-		if (!_tcscmp(tmpbuf, _T("disabled"))) {
-			p->win32_rtgvblankrate = -2;
-			return 1;
-		}
-		if (!_tcscmp(tmpbuf, _T("chipset"))) {
-			p->win32_rtgvblankrate = 0;
-			return 1;
-		}
-		p->win32_rtgvblankrate = _tstol(tmpbuf);
-		return 1;
-	}
-
+	if (!_tcscmp(option, _T("rtg_vblank")))
+		return hostcfg_parse_option(p, option, value, HOSTCFG_WINDOWS);
 	return 0;
 }
 
 static int target_parse_option_host(struct uae_prefs *p, const TCHAR *option, const TCHAR *value)
 {
 	TCHAR tmpbuf[CONFIG_BLEN];
-	int v;
 	bool tbool;
 
-	if (cfgfile_yesno(option, value, _T("middle_mouse"), &tbool)) {
-		if (tbool)
-			p->input_mouse_untrap |= MOUSEUNTRAP_MIDDLEBUTTON;
-		else
-			p->input_mouse_untrap &= ~MOUSEUNTRAP_MIDDLEBUTTON;
+	if (!_tcscmp(option, _T("activepriority")))
+		return hostcfg_parse_option(p, _T("active_priority"), value, HOSTCFG_WINDOWS);
+
+	// RTG vblank belongs to hardware-only configurations on Windows.
+	if (_tcscmp(option, _T("rtg_vblank")) &&
+		hostcfg_parse_option(p, option, value, HOSTCFG_WINDOWS))
 		return 1;
-	}
 
 	if (cfgfile_yesno(option, value, _T("map_drives"), &p->win32_automount_drives)
 		|| cfgfile_yesno(option, value, _T("map_drives_auto"), &p->win32_automount_removable)
@@ -4790,15 +4648,6 @@ static int target_parse_option_host(struct uae_prefs *p, const TCHAR *option, co
 		|| cfgfile_yesno(option, value, _T("networking"), &p->socket_emu)
 		|| cfgfile_yesno(option, value, _T("borderless"), &p->win32_borderless)
 		|| cfgfile_yesno(option, value, _T("blank_monitors"), &p->win32_blankmonitors)
-		|| cfgfile_yesno(option, value, _T("active_not_captured_pause"), &p->win32_active_nocapture_pause)
-		|| cfgfile_yesno(option, value, _T("active_not_captured_nosound"), &p->win32_active_nocapture_nosound)
-		|| cfgfile_yesno(option, value, _T("inactive_pause"), &p->win32_inactive_pause)
-		|| cfgfile_yesno(option, value, _T("inactive_nosound"), &p->win32_inactive_nosound)
-		|| cfgfile_intval(option, value, _T("active_input"), &p->win32_active_input, 1)
-		|| cfgfile_intval(option, value, _T("inactive_input"), &p->win32_inactive_input, 1)
-		|| cfgfile_yesno(option, value, _T("iconified_pause"), &p->win32_iconified_pause)
-		|| cfgfile_yesno(option, value, _T("iconified_nosound"), &p->win32_iconified_nosound)
-		|| cfgfile_intval(option, value, _T("iconified_input"), &p->win32_iconified_input, 1)
 		|| cfgfile_yesno(option, value, _T("ctrl_f11_is_quit"), &p->win32_ctrl_F11_is_quit)
 		|| cfgfile_yesno(option, value, _T("no_recyclebin"), &p->win32_norecyclebin)
 		|| cfgfile_intval(option, value, _T("midi_device"), &p->win32_midioutdev, 1)
@@ -4825,32 +4674,9 @@ static int target_parse_option_host(struct uae_prefs *p, const TCHAR *option, co
 		|| cfgfile_yesno(option, value, _T("warn_exit"), &p->win32_warn_exit)
 		|| cfgfile_intval(option, value, _T("extraframewait"), &extraframewait, 1)
 		|| cfgfile_intval(option, value, _T("extraframewait_us"), &extraframewait2, 1)
-		|| cfgfile_intval(option, value, _T("framelatency"), &forcedframelatency, 1)
-		|| cfgfile_intval(option, value, _T("cpu_idle"), &p->cpu_idle, 1))
+		|| cfgfile_intval(option, value, _T("framelatency"), &forcedframelatency, 1))
 		return 1;
 
-	if (cfgfile_intval(option, value, _T("recording_width"), &p->aviout_width, 1)
-		|| cfgfile_intval(option, value, _T("recording_height"), &p->aviout_height, 1)
-		|| cfgfile_intval(option, value, _T("recording_x"), &p->aviout_xoffset, 1)
-		|| cfgfile_intval(option, value, _T("recording_y"), &p->aviout_yoffset, 1)
-
-		|| cfgfile_intval(option, value, _T("screenshot_width"), &p->screenshot_width, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_height"), &p->screenshot_height, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_x"), &p->screenshot_xoffset, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_y"), &p->screenshot_yoffset, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_min_width"), &p->screenshot_min_width, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_min_height"), &p->screenshot_min_height, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_max_width"), &p->screenshot_max_width, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_max_height"), &p->screenshot_max_height, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_output_width_limit"), &p->screenshot_output_width, 1)
-		|| cfgfile_intval(option, value, _T("screenshot_output_height_limit"), &p->screenshot_output_height, 1))
-		return 1;
-
-	if (cfgfile_strval(option, value, _T("screenshot_mult_width"), &p->screenshot_xmult, configmult, 0))
-		return 1;
-	if (cfgfile_strval(option, value, _T("screenshot_mult_height"), &p->screenshot_ymult, configmult, 0))
-		return 1;
-		
 	if (cfgfile_string(option, value, _T("expansion_gui_page"), tmpbuf, sizeof tmpbuf / sizeof(TCHAR))) {
 		TCHAR *p = _tcschr(tmpbuf, ',');
 		if (p != NULL)
@@ -4970,42 +4796,12 @@ static int target_parse_option_host(struct uae_prefs *p, const TCHAR *option, co
 		return 1;
 	}
 
-	if (cfgfile_strval(option, value, _T("uaescsimode"), &p->win32_uaescsimode, scsimode, 0)) {
-		// force SCSIEMU if pre 2.3 configuration
-		if (p->config_version < ((2 << 16) | (3 << 8)))
-			p->win32_uaescsimode = UAESCSI_CDEMU;
-		return 1;
-	}
-
 	if (cfgfile_strval(option, value, _T("statusbar"), &p->win32_statusbar, statusbarmode, 0))
 		return 1;
-
-	if (cfgfile_intval(option, value, _T("active_priority"), &v, 1) || cfgfile_intval (option, value, _T("activepriority"), &v, 1)) {
-		p->win32_active_capture_priority = fetchpri (v, 1);
-		p->win32_active_nocapture_pause = false;
-		p->win32_active_nocapture_nosound = false;
-		return 1;
-	}
-
-#if 0
-	if (cfgfile_intval (option, value, _T("active_not_captured_priority"), &v, 1)) {
-		p->win32_active_nocapture_priority = fetchpri (v, 1);
-		return 1;
-	}
-#endif
 
 	if (cfgfile_yesno(option, value, _T("active_capture_automatically"), &p->win32_capture_always))
 		return 1;
 
-	if (cfgfile_intval(option, value, _T("inactive_priority"), &v, 1)) {
-		p->win32_inactive_priority = fetchpri (v, 1);
-		return 1;
-	}
-	if (cfgfile_intval(option, value, _T("iconified_priority"), &v, 1)) {
-		p->win32_iconified_priority = fetchpri (v, 2);
-		return 1;
-	}
-	
 	if (cfgfile_yesno(option, value, _T("inactive_iconify"), &p->win32_minimize_inactive))
 		return 1;
 
@@ -5061,6 +4857,13 @@ static int target_parse_option_host(struct uae_prefs *p, const TCHAR *option, co
 	}
 
 	return 0;
+}
+
+int target_parse_compat_option(struct uae_prefs *p, const TCHAR *option, const TCHAR *value, int type)
+{
+	if (!hostcfg_is_compat_option(option))
+		return 0;
+	return target_parse_option(p, option, value, type);
 }
 
 int target_parse_option(struct uae_prefs *p, const TCHAR *option, const TCHAR *value, int type)
@@ -6723,25 +6526,21 @@ static TCHAR *getdefaultini (int *tempfile)
 
 static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 {
+	int consumed = parse_core_arg(argx, np, np2);
+	if (consumed) {
+		return consumed;
+	}
 	const TCHAR *arg = argx + 1;
 
 	if (argx[0] != '-' && argx[0] != '/')
 		return 0;
 
-	if (!_tcscmp(arg, _T("convert")) && np && np2) {
-		zfile_convertimage(np, np2);
-		return -1;
-	}
 	if (!_tcscmp(arg, _T("console"))) {
 		console_started = 1;
 		return 1;
 	}
 	if (!_tcscmp(arg, _T("cli"))) {
 		console_emulation = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("log"))) {
-		console_logging = 1;
 		return 1;
 	}
 	if (!_tcscmp(arg, _T("logfile"))) {
@@ -6766,10 +6565,6 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		return 1;
 	}
 #endif
-	if (!_tcscmp(arg, _T("pngprint"))) {
-		pngprint = 1;
-		return 1;
-	}
 	if (!_tcscmp(arg, _T("norawinput"))) {
 		no_rawinput |= 4;
 		return 1;
@@ -6818,90 +6613,8 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		force_directsound = 1;
 		return 1;
 	}
-	if (!_tcscmp(arg, _T("scsilog"))) {
-		log_scsi = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("scsiemulog"))) {
-		extern int log_scsiemu;
-		log_scsiemu = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("ds_partition_hdf"))) {
-		extern int enable_ds_partition_hdf;
-		enable_ds_partition_hdf = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("filesyslog"))) {
-		log_filesys = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("filesyslog2"))) {
-		log_filesys = 2;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("netlog"))) {
-		log_net = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("serlog"))) {
-		log_sercon = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("serlog2"))) {
-		log_sercon = 2;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("serlog3"))) {
-		log_sercon = 3;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("a2065log"))) {
-		log_a2065 = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("a2065log2"))) {
-		log_a2065 = 2;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("a2065log3"))) {
-		log_a2065 = 3;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("a2065_promiscuous"))) {
-		a2065_promiscuous = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("seriallog"))) {
-		log_uaeserial = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("vsynclog")) || !_tcscmp(arg, _T("vsynclog1"))) {
-		log_vsync |= 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("vsynclog2"))) {
-		log_vsync |= 2;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("bsdlog"))) {
-		log_bsd = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("clipboarddebug"))) {
-		clipboard_debug = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("clipboardlog"))) {
-		clipboard_log = 1;
-		return 1;
-	}
 	if (!_tcscmp(arg, _T("rplog"))) {
 		log_rp = 3;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("dsplog"))) {
-		log_dsp = 1;
 		return 1;
 	}
 	if (!_tcscmp(arg, _T("nomultidisplay"))) {
@@ -6974,10 +6687,6 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		ahi_debug = 3;
 		return 1;
 	}
-	if (!_tcscmp(arg, _T("quittogui"))) {
-		quit_to_gui = 1;
-		return 1;
-	}
 	if (!_tcscmp(arg, _T("ini")) && np) {
 		inipath = my_strdup(np);
 		return 2;
@@ -6996,27 +6705,8 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		createbootlog = false;
 		return 1;
 	}
-	if (!_tcscmp(arg, _T("cd32log"))) {
-		if (log_cd32 < 1)
-			log_cd32 = 1;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("cd32log2"))) {
-		if (log_cd32 < 2)
-			log_cd32 = 2;
-		return 1;
-	}
 	if (!_tcscmp(arg, _T("nolcd"))) {
 		logitech_lcd = 0;
-		return 1;
-	}
-	if (!_tcscmp(arg, _T("romlist"))) {
-		void dumpromlist(void);
-		dumpromlist();
-		return -1;
-	}
-	if (!_tcscmp(arg, _T("rawextadf"))) {
-		floppy_writemode = -1;
 		return 1;
 	}
 	if (!_tcscmp(arg, _T("busywait"))) {
@@ -7055,10 +6745,6 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		on_screen_keyboard = 1;
 		return 1;
 	}
-	if (!_tcscmp(arg, _T("nomt"))) {
-		multithread_enabled = 0;
-		return 1;
-	}
 
 	if (!np)
 		return 0;
@@ -7075,24 +6761,12 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		return 2;
 	}
 
-	if (!_tcscmp(arg, _T("ethlog"))) {
-		log_ethernet = getval(np);
-		return 2;
-	}
 	if (!_tcscmp (arg, _T("vsync_modechangetimeout"))) {
 		vsync_modechangetimeout = getval (np);
 		return 2;
 	}
 	if (!_tcscmp (arg, _T("rtg_blitter"))) {
 		debug_rtg_blitter = getval (np);
-		return 2;
-	}
-	if (!_tcscmp (arg, _T("vsync_min_delay"))) {
-		debug_vsync_min_delay = getval (np);
-		return 2;
-	}
-	if (!_tcscmp (arg, _T("vsync_forced_delay"))) {
-		debug_vsync_forced_delay = getval (np);
 		return 2;
 	}
 	if (!_tcscmp (arg, _T("threadedd3d"))) {
@@ -7103,28 +6777,8 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		tablet_log = getval (np);
 		return 2;
 	}
-	if (!_tcscmp (arg, _T("blitterdebug"))) {
-		log_blitter = getval (np);
-		return 2;
-	}
 	if (!_tcscmp (arg, _T("inputlog"))) {
 		rawinput_log = getval (np);
-		return 2;
-	}
-	if (!_tcscmp (arg, _T("inputdevicelog"))) {
-		inputdevice_logging = getval (np);
-		return 2;
-	}
-	if (!_tcscmp (arg, _T("slirplog"))) {
-		slirp_debug = getval (np);
-		return 2;
-	}
-	if (!_tcscmp (arg, _T("ldlog"))) {
-		log_ld = getval (np);
-		return 2;
-	}
-	if (!_tcscmp (arg, _T("kbmculog"))) {
-		kb_mcu_log = getval (np);
 		return 2;
 	}
 	if (!_tcscmp (arg, _T("midiinbuffer"))) {
@@ -7179,18 +6833,6 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 		minidumpmode = (MINIDUMP_TYPE)getval (np);
 		return 2;
 	}
-	if (!_tcscmp(arg, _T("jitevent"))) {
-		pissoff_value = getval(np) * CYCLE_UNIT;
-		return 2;
-	}
-	if (!_tcscmp(arg, _T("cpuevent"))) {
-		pissoff_nojit_value = getval(np) * CYCLE_UNIT;
-		return 2;
-	}
-	if (!_tcscmp (arg, _T("inputrecorddebug"))) {
-		inputrecord_debug = getval (np);
-		return 2;
-	}
 	if (!_tcscmp(arg, _T("extraframewait"))) {
 		extraframewait = getval(np);
 		return 2;
@@ -7201,10 +6843,6 @@ static int parseargs(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
 	}
 	if (!_tcscmp (arg, _T("framelatency"))) {
 		forcedframelatency = getval (np);
-		return 2;
-	}
-	if (!_tcscmp(arg, _T("conlogfile"))) {
-		conlogfile = my_strdup(np);
 		return 2;
 	}
 #ifdef RETROPLATFORM
@@ -8224,6 +7862,20 @@ end:
 HMODULE WIN32_LoadLibrary (const TCHAR *name)
 {
 	return WIN32_LoadLibrary_2 (name, TRUE);
+}
+
+bool target_dlopen_plugin(const TCHAR *name, TCHAR *path,
+	size_t path_size, UAE_DLHANDLE *handle)
+{
+	*handle = NULL;
+	if (_tcslen(name) + _tcslen(LT_MODULE_EXT) >= path_size)
+		return true;
+	_tcscpy(path, name);
+	_tcscat(path, LT_MODULE_EXT);
+	*handle = WIN32_LoadLibrary(path);
+	// This target owns the search, including failed loads. Do not retry
+	// through the generic loader with a different name or search path.
+	return true;
 }
 
 int isdllversion (const TCHAR *name, int version, int revision, int subver, int subrev)

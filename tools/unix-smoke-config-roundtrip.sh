@@ -61,7 +61,7 @@ run_case() {
     absent_keys=${4:-}
     output="$WORK/$name-out.uae"
 
-    env QT_QPA_PLATFORM=offscreen \
+    env QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}" \
         WINUAE_INI="$WORK/$name.ini" \
         WINUAE_QT_CONFIG_ROUNDTRIP_OUT="$output" \
         "$EXE" -f "$input" >/dev/null 2>&1 || {
@@ -248,6 +248,110 @@ if [ "$(config_value unix.rtg_vblank "$output")" != "50" ] ||
     [ "$(config_value unix.soundcard "$output")" = "3" ]; then
     echo "FAIL: win32-keys: win32.* settings were not mapped as expected" >&2
     cat "$output" >&2
+    exit 1
+fi
+
+# Portable settings use the same table in the core and launcher. Later
+# host-prefix aliases win, while foreign device selection stays untouched.
+cat > "$WORK/portable-host.uae" <<EOF
+config_description=Portable host settings
+win32.recording_width=320
+unix.recording_width=640
+unix.recording_height=200
+win32.recording_height=480
+win32.screenshot_mult_width=3x
+win32.screenshot_mult_height=2x
+unix.active_priority=1
+win32.active_priority=-1
+win32.inactive_priority=0
+win32.iconified_priority=-2
+win32.inactive_input=4
+win32.iconified_input=0
+win32.middle_mouse=true
+win32.cpu_idle=150
+win32.midiout_device_name=Foreign MIDI port
+win32.serial_port=COM7
+EOF
+run_case portable-host "$WORK/portable-host.uae" \
+    "win32.recording_width unix.recording_width unix.recording_height win32.recording_height win32.screenshot_mult_width win32.screenshot_mult_height win32.cpu_idle win32.midiout_device_name win32.serial_port"
+output="$WORK/portable-host-out.uae"
+for expected in active_priority=-1 inactive_priority=0 iconified_priority=-2 \
+    inactive_input=4 iconified_input=0 middle_mouse=true; do
+    key=${expected%%=*}
+    value=${expected#*=}
+    if [ "$(config_value "unix.$key" "$output")" != "$value" ]; then
+        echo "FAIL: portable-host: unix.$key did not retain $value" >&2
+        exit 1
+    fi
+done
+
+if ! awk '/^win32.active_priority=/{foreign=NR}
+    /^unix.active_priority=/{native=NR}
+    END{exit !(native > foreign)}' "$output"; then
+    echo "FAIL: portable-host: native edits must follow foreign aliases" >&2
+    exit 1
+fi
+
+# Parsing flags must free the original allocation, not the cursor advanced
+# by the integer parser. This configuration used to abort before Qt opened.
+cat > "$WORK/mount-flags.uae" <<EOF
+hardfile2=ro,:/tmp/mount-flags.hdf,0,0,0,512,0,,scsi0_a4091,flags=0x4,lock
+EOF
+run_case mount-flags "$WORK/mount-flags.uae" "hardfile2"
+# Check defaults produced by Quickstart itself, rather than putting the
+# expected hardware values into the input as explicit overrides.
+run_preset() {
+    name=$1
+    preset=$2
+    expected=$3
+    input="$WORK/$name.uae"
+    cat > "$input" <<EOF
+quickstart=$preset
+clipboard_sharing=true
+unix.nvram_path=$WORK/nvram
+sound_frequency=44100
+EOF
+    run_case "$name" "$input" \
+        "quickstart clipboard_sharing unix.nvram_path sound_frequency" "cpu_type"
+    output="$WORK/$name-out.uae"
+    for setting in $expected; do
+        key=${setting%%=*}
+        value=${setting#*=}
+        actual=$(config_value "$key" "$output")
+        if [ "$actual" != "$value" ]; then
+            echo "FAIL: $name: $key: expected '$value', got '$actual'" >&2
+            exit 1
+        fi
+    done
+}
+
+run_preset quickstart-a1000 "A1000,2" \
+    "cpu_model=68000 chipmem_size=0 chipset_compatible=A1000"
+run_preset quickstart-a500-ecs "A500,2" \
+    "chipset=ecs_agnus chipmem_size=2 bogomem_size=0"
+run_preset quickstart-blizzard "A1200,2" \
+    "cpu_model=68030 cpu_multiplier=5 cpuboard_type=Blizzard1230IV cpuboardmem1_size=32"
+run_preset quickstart-a3000 "A3000,2" \
+    "cpu_model=68030 a3000mem_size=8 sound_output=normal"
+run_preset quickstart-cd32 "CD32,0" \
+    "cpu_model=68020 nr_floppies=0 floppy0type=-1"
+
+cat > "$WORK/quickstart-overrides.uae" <<EOF
+quickstart=A1200,2
+cpu_multiplier=8
+cpuboardmem1_size=64
+chipmem_size=4
+EOF
+run_case quickstart-overrides "$WORK/quickstart-overrides.uae" \
+    "cpu_multiplier cpuboardmem1_size chipmem_size"
+
+cat > "$WORK/environment-rom.uae" <<EOF
+config_description=Environment ROM override
+EOF
+WINUAE_KICKSTART_ROM="$WORK/custom.rom" \
+    run_case environment-rom "$WORK/environment-rom.uae" "config_description"
+if [ "$(config_value kickstart_rom_file "$WORK/environment-rom-out.uae")" != "$WORK/custom.rom" ]; then
+    echo "FAIL: environment-rom: ROM override was replaced by the default preset" >&2
     exit 1
 fi
 

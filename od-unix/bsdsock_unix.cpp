@@ -35,6 +35,7 @@
 #include "threaddep/thread.h"
 #include "native2amiga.h"
 #include "bsdsocket.h"
+#include "bsdsocket_results.h"
 #include "uae.h"
 
 #include <sys/types.h>
@@ -320,6 +321,8 @@ static int mapsockoptname (int level, int optname)
 			return IP_MULTICAST_LOOP;
 		case 12:
 			return IP_ADD_MEMBERSHIP;
+		case 13:
+			return IP_DROP_MEMBERSHIP;
 
 		default:
 			write_log("Invalid setsockopt option 0x%x for level %d\n",
@@ -349,9 +352,33 @@ static int mapsockoptname (int level, int optname)
 }
 
 /*
+ * IPv4 multicast options don't take a 32-bit integer: struct in_addr and
+ * struct ip_mreq hold addresses in network byte order, and the TTL and loop
+ * flags are a u_char (an int is accepted too). Returns the argument size, or
+ * 0 for any other option.
+ */
+static int ip_multicast_option_size(int level, int optname)
+{
+	if (level != IPPROTO_IP)
+		return 0;
+	switch (optname) {
+	case IP_MULTICAST_TTL:
+	case IP_MULTICAST_LOOP:
+		return 1;
+	case IP_MULTICAST_IF:
+		return 4;
+	case IP_ADD_MEMBERSHIP:
+	case IP_DROP_MEMBERSHIP:
+		return 8;
+	default:
+		return 0;
+	}
+}
+
+/*
  * Map amiga (s|g)etsockopt return value into the correct form
  */
-static void mapsockoptreturn(int level, int optname, uae_u32 optval, void *buf)
+static void mapsockoptreturn(int level, int optname, uae_u32 optval, void *buf, socklen_t len)
 {
 	switch (level) {
 
@@ -399,11 +426,22 @@ static void mapsockoptreturn(int level, int optname, uae_u32 optval, void *buf)
 		case IP_RECVOPTS:
 		//case IP_RECVRETOPTS:
 		//case IP_RETOPTS:
+			put_long (optval, *(int *)buf);
+			break;
+
 		case IP_MULTICAST_IF:
+			// struct in_addr, already in network byte order
+			for (socklen_t i = 0; i < 4 && i < len; i++)
+				put_byte (optval + i, ((uae_u8 *)buf)[i]);
+			break;
+
 		case IP_MULTICAST_TTL:
 		case IP_MULTICAST_LOOP:
-		case IP_ADD_MEMBERSHIP:
-			put_long (optval, *(int *)buf);
+			// the host returns a u_char or an int, matching the length asked for
+			if (len < sizeof(int))
+				put_byte (optval, *(uae_u8 *)buf);
+			else
+				put_long (optval, *(int *)buf);
 			break;
 
 		default:
@@ -431,7 +469,7 @@ static void mapsockoptreturn(int level, int optname, uae_u32 optval, void *buf)
 /*
  * Map amiga (s|g)etsockopt value from amiga to the appropriate value
  */
-static void mapsockoptvalue(int level, int optname, uae_u32 optval, void *buf)
+static void mapsockoptvalue(int level, int optname, uae_u32 optval, void *buf, uae_u32 len)
 {
 	switch (level) {
 
@@ -475,11 +513,25 @@ static void mapsockoptvalue(int level, int optname, uae_u32 optval, void *buf)
 		case IP_RECVOPTS:
 		//case IP_RECVRETOPTS:
 		//case IP_RETOPTS:
+			*((int *)buf) = get_long (optval);
+			break;
+
 		case IP_MULTICAST_IF:
+		case IP_ADD_MEMBERSHIP:
+		case IP_DROP_MEMBERSHIP:
+			// struct in_addr / struct ip_mreq, already in network byte order;
+			// buf holds len bytes, a short one is left for the host to reject
+			for (uae_u32 i = 0; i < (uae_u32)ip_multicast_option_size(level, optname) && i < len; i++)
+				((uae_u8 *)buf)[i] = get_byte (optval + i);
+			break;
+
 		case IP_MULTICAST_TTL:
 		case IP_MULTICAST_LOOP:
-		case IP_ADD_MEMBERSHIP:
-			*((int *)buf) = get_long (optval);
+			// a u_char, or an int
+			if (len < sizeof(uae_u32))
+				*(uae_u8 *)buf = get_byte (optval);
+			else
+				*((int *)buf) = get_long (optval);
 			break;
 
 		default:
@@ -1106,102 +1158,24 @@ static void drop_hostent(SB)
 /*
  * Copy a hostent object from native space to amiga space
  */
-static void copyHostent(TrapContext* ctx, const unix_hostent_copy* hostent, SB)
+static void copyHostent(TrapContext *ctx, const unix_hostent_copy *hostent, SB)
 {
-	int size = 28;
-	int i;
-	int numaddr = (int)hostent->addrs.size();
-	int numaliases = (int)hostent->aliases.size();
-	uae_u32 aptr;
-
-	size += hostent->name.size() + 1;
-	for (i = 0; i < numaliases; i++)
-		size += hostent->aliases[i].size() + 5;
-	size += numaddr * (hostent->length + 4);
-
-	// The buffer starts at 1024 bytes; grow it for larger results
-	if (sb->hostent && sb->hostentsize < size) {
-		uae_FreeMem(ctx, sb->hostent, sb->hostentsize, sb->sysbase);
-		sb->hostent = 0;
-		sb->hostentsize = 0;
+	std::vector<const char*> aliases, addresses;
+	for (const std::string &alias : hostent->aliases) {
+		aliases.push_back(alias.c_str());
 	}
-
-	if (!sb->hostent) {
-		sb->hostent = uae_AllocMem(ctx, size, 0, sb->sysbase);
-		if (!sb->hostent) {
-			write_log("BSDSOCK: WARNING - copyHostent() ran out of Amiga memory (couldn't allocate %d bytes)\n", size);
-			bsdsocklib_seterrno(ctx, sb, 12); // ENOMEM
-			return;
-		}
-		sb->hostentsize = size;
+	for (const std::string &address : hostent->addrs) {
+		addresses.push_back(address.data());
 	}
-
-	aptr = sb->hostent + 28 + numaliases * 4 + numaddr * 4;
-
-	// transfer hostent to Amiga memory
-	trap_put_long(ctx, sb->hostent + 4, sb->hostent + 20);
-	trap_put_long(ctx, sb->hostent + 8, hostent->addrtype);
-	trap_put_long(ctx, sb->hostent + 12, hostent->length);
-	trap_put_long(ctx, sb->hostent + 16, sb->hostent + 24 + numaliases * 4);
-
-	for (i = 0; i < numaliases; i++)
-		trap_put_long(ctx, sb->hostent + 20 + i * 4, addstr(ctx, &aptr, hostent->aliases[i].c_str()));
-	trap_put_long(ctx, sb->hostent + 20 + numaliases * 4, 0);
-
-	for (i = 0; i < numaddr; i++) {
-		trap_put_long(ctx, sb->hostent + 24 + (numaliases + i) * 4, addmem(ctx, &aptr, hostent->addrs[i].data(), hostent->length));
-	}
-	trap_put_long(ctx, sb->hostent + 24 + numaliases * 4 + numaddr * 4, 0);
-	trap_put_long(ctx, sb->hostent, aptr);
-	addstr(ctx, &aptr, hostent->name.c_str());
-
-	bsdsocklib_seterrno(ctx, sb, 0);
+	aliases.push_back(NULL);
+	addresses.push_back(NULL);
+	bsdsock_copy_hostent(ctx, sb, hostent->name.c_str(), aliases.data(),
+		hostent->addrtype, hostent->length, addresses.data());
 }
 
-/*
- * Copy a protoent object from native space to Amiga space
- */
-static void copyProtoent(TrapContext* ctx, SB, const struct protoent* p)
+static void copyProtoent(TrapContext *ctx, SB, const struct protoent *p)
 {
-	int size = 16;
-	int numaliases = 0;
-	int i;
-	uae_u32 aptr;
-
-	// compute total size of protoent
-	if (p->p_name != NULL)
-		size += strlen(p->p_name) + 1;
-
-	if (p->p_aliases != NULL)
-		while (p->p_aliases[numaliases])
-			size += strlen(p->p_aliases[numaliases++]) + 5;
-
-	if (sb->protoent) {
-		uae_FreeMem(ctx, sb->protoent, sb->protoentsize, sb->sysbase);
-	}
-
-	sb->protoent = uae_AllocMem(ctx, size, 0, sb->sysbase);
-
-	if (!sb->protoent) {
-		write_log("BSDSOCK: WARNING - copyProtoent() ran out of Amiga memory (couldn't allocate %d bytes)\n", size);
-		bsdsocklib_seterrno(ctx, sb, 12); // ENOMEM
-		return;
-	}
-
-	sb->protoentsize = size;
-
-	aptr = sb->protoent + 16 + numaliases * 4;
-
-	// transfer protoent to Amiga memory
-	trap_put_long(ctx, sb->protoent + 4, sb->protoent + 12);
-	trap_put_long(ctx, sb->protoent + 8, p->p_proto);
-
-	for (i = 0; i < numaliases; i++)
-		trap_put_long(ctx, sb->protoent + 12 + i * 4, addstr(ctx, &aptr, p->p_aliases[i]));
-	trap_put_long(ctx, sb->protoent + 12 + numaliases * 4, 0);
-	trap_put_long(ctx, sb->protoent, aptr);
-	addstr(ctx, &aptr, p->p_name);
-	bsdsocklib_seterrno(ctx, sb, 0);
+	bsdsock_copy_protoent(ctx, sb, p->p_name, p->p_aliases, p->p_proto);
 }
 
 uae_u32 bsdthr_Accept_2 (SB)
@@ -2017,7 +1991,7 @@ void host_setsockopt(SB, uae_u32 sd, uae_u32 level, uae_u32 optname, uae_u32 opt
 			timeout.tv_usec = get_long(optval + 4);
 		}
 		else {
-			mapsockoptvalue(nativelevel, nativeoptname, optval, buf);
+			mapsockoptvalue(nativelevel, nativeoptname, optval, buf, len);
 		}
 	}
 	if (nativeoptname == SO_RCVTIMEO || nativeoptname == SO_SNDTIMEO) {
@@ -2116,7 +2090,7 @@ uae_u32 host_getsockopt(TrapContext* ctx, SB, uae_u32 sd, uae_u32 level, uae_u32
 				put_long(optval + 4, sl.l_linger);
 			}
 			else {
-				mapsockoptreturn(nativelevel, nativeoptname, optval, buf);
+				mapsockoptreturn(nativelevel, nativeoptname, optval, buf, len);
 			}
 		}
 	}
@@ -2519,47 +2493,11 @@ void host_WaitSelect(TrapContext *ctx, SB, uae_u32 nfds, uae_u32 readfds, uae_u3
 	clearsockabort(sb);
 }
 
-uae_u32 host_Inet_NtoA(TrapContext *ctx, SB, uae_u32 in)
+uae_u32 host_inet_addr(const char *text)
 {
-	uae_char *addr;
-	struct in_addr ina;
-	uae_u32 scratchbuf;
-
-	*(uae_u32 *)&ina = htonl(in);
-	BSDTRACE((_T("Inet_NtoA(%x) -> "), in));
-
-	if ((addr = inet_ntoa(ina)) != NULL) {
-		scratchbuf = trap_get_areg(ctx, 6) + offsetof(struct UAEBSDBase, scratchbuf);
-		strncpyha(ctx, scratchbuf, addr, SCRATCHBUFSIZE);
-		if (ISBSDTRACE) {
-			TCHAR *s = au(addr);
-			BSDTRACE((_T("%s\n"), s));
-			xfree(s);
-		}
-		return scratchbuf;
-	}
-	SETERRNO;
-	BSDTRACE((_T("failed (%d)\n"), sb->sb_errno));
-	return 0;
-}
-
-uae_u32 host_inet_addr(TrapContext *ctx, uae_u32 cp)
-{
-	uae_u32 addr;
-	char *cp_rp;
-
-	if (!trap_valid_address(ctx, cp, 4)) {
-		return 0;
-	}
-	cp_rp = trap_get_alloc_string(ctx, cp, 256);
-	addr = htonl(inet_addr(cp_rp));
-	if (ISBSDTRACE) {
-		TCHAR *s = au(cp_rp);
-		BSDTRACE((_T("inet_addr(%s) -> 0x%08x\n"), s, addr));
-		xfree(s);
-	}
-	xfree(cp_rp);
-	return addr;
+	// Keep the native parser's legacy address syntax and return the numeric
+	// value expected by the big-endian Amiga, independent of host byte order.
+	return htonl(inet_addr(text));
 }
 
 uae_u32 host_gethostname(TrapContext *ctx, uae_u32 name, uae_u32 namelen)
@@ -2634,56 +2572,14 @@ void host_getservbynameport(TrapContext *ctx, SB, uae_u32 nameport, uae_u32 prot
 		getservbyport (htons((unsigned short)nameport), (char *)get_real_address (proto)) :
 		getservbyname ((char *)get_real_address (nameport), (char *)get_real_address (proto));
 #endif
-	int size;
-	int numaliases = 0;
-	uae_u32 aptr;
-	int i;
 	if (type) {
 		write_log("Getservbyport(%d, %s) = %p\n", nameport, get_real_address (proto), s);
 	} else {
 		write_log("Getservbyname(%s, %s) = %p\n", get_real_address (nameport), get_real_address (proto), s);
 	}
 	if (s != NULL) {
-		// compute total size of servent
-		size = 20;
-		if (s->s_name != NULL)
-			size += strlen (s->s_name) + 1;
-		if (s->s_proto != NULL)
-			size += strlen (s->s_proto) + 1;
-
-		if (s->s_aliases != NULL)
-			while (s->s_aliases[numaliases])
-				size += strlen (s->s_aliases[numaliases++]) + 5;
-
-		if (sb->servent) {
-			uae_FreeMem(ctx, sb->servent, sb->serventsize, sb->sysbase);
-		}
-
-		sb->servent = uae_AllocMem (ctx, size, 0, sb->sysbase);
-
-		if (!sb->servent) {
-			write_log ("BSDSOCK: WARNING - getservby%s() ran out of Amiga memory (couldn't allocate %d bytes)\n",type ? "port" : "name", size);
-			bsdsocklib_seterrno (ctx, sb, 12); // ENOMEM
-			return;
-		}
-
-		sb->serventsize = size;
-
-		aptr = sb->servent + 20 + numaliases * 4;
-
-		// transfer servent to Amiga memory
-		trap_put_long(ctx, sb->servent + 4, sb->servent + 16);
-		trap_put_long(ctx, sb->servent + 8, (unsigned short)htons (s->s_port));
-
-		for (i = 0; i < numaliases; i++)
-			trap_put_long(ctx, sb->servent + 16 + i * 4, addstr_ansi(ctx, &aptr, s->s_aliases[i]));
-		trap_put_long(ctx, sb->servent + 16 + numaliases * 4, 0);
-		trap_put_long(ctx, sb->servent, aptr);
-		addstr_ansi(ctx, &aptr, s->s_name);
-		trap_put_long(ctx, sb->servent + 12, aptr);
-		addstr_ansi(ctx, &aptr, s->s_proto);
-
-		bsdsocklib_seterrno (ctx, sb,0);
+		bsdsock_copy_servent(ctx, sb, s->s_name, s->s_aliases,
+			(unsigned short)ntohs(s->s_port), s->s_proto);
 	} else {
 		// Free previous allocation and clear so Amiga side returns NULL
 		if (sb->servent) {

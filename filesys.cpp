@@ -27,6 +27,7 @@
 
 #include "threaddep/thread.h"
 #include "options.h"
+#include "hardfile_defaults.h"
 #include "traps.h"
 #include "uae.h"
 #include "memory.h"
@@ -888,12 +889,7 @@ static int set_filesys_volume (const TCHAR *rootdir, int *flags, bool *readonly,
 void uci_set_defaults (struct uaedev_config_info *uci, bool rdb)
 {
 	memset (uci, 0, sizeof (struct uaedev_config_info));
-	if (!rdb) {
-		uci->sectors = 32;
-		uci->reserved = 2;
-		uci->surfaces = 1;
-	}
-	uci->blocksize = 512;
+	hardfile_geometry_defaults(uci, rdb);
 	uci->maxtransfer = 0x7fffffff;
 	uci->mask = 0xffffffff;
 	uci->bufmemtype = 1;
@@ -1165,6 +1161,25 @@ static int add_filesys_unit (struct uaedev_config_info *ci, bool custom)
 	}
 #endif
 	return nr;
+}
+
+// Host drive discovery must not depend on the private mount table layout.
+int filesys_add_external_unit(struct uaedev_config_info *ci)
+{
+	return add_filesys_unit(ci, true);
+}
+
+bool filesys_volume_name_exists(const struct uaedev_mount_info *mtinf,
+	const TCHAR *name)
+{
+	if (!mtinf)
+		mtinf = &mountinfo;
+	for (int i = 0; i < MAX_FILESYSTEM_UNITS; i++) {
+		const UnitInfo *ui = &mtinf->ui[i];
+		if (ui->open && ui->volname && _tcsicmp(ui->volname, name) == 0)
+			return true;
+	}
+	return false;
 }
 
 int kill_filesys_unitconfig (struct uae_prefs *p, int nr)
@@ -9624,9 +9639,6 @@ void filesys_install_code (void)
 
 }
 
-#ifdef _WIN32
-#include "od-win32/win32_filesys.cpp"
-#endif
 
 static uae_u8 *restore_filesys_hardfile (UnitInfo *ui, uae_u8 *src)
 {

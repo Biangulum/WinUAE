@@ -11,6 +11,7 @@
 #include <assert.h>
 
 #include "options.h"
+#include "cpu_selection.h"
 #include "threaddep/thread.h"
 #include "uae.h"
 #include "gensound.h"
@@ -260,24 +261,9 @@ void fixup_cpu (struct uae_prefs *p)
 		p->fpu_model = 0;
 	}
 
-	switch (p->cpu_model)
-	{
-	case 68000:
-		break;
-	case 68010:
-		break;
-	case 68020:
-		break;
-	case 68030:
-		break;
-	case 68040:
-		if (p->fpu_model)
-			p->fpu_model = 68040;
-		break;
-	case 68060:
-		if (p->fpu_model)
-			p->fpu_model = 68060;
-		break;
+	if (p->cpu_model == 68040 || p->cpu_model == 68060) {
+		p->fpu_model = cpu_selection_fpu(p->cpu_model, p->fpu_model,
+			p->cpu_compatible, p->cpu_memory_cycle_exact);
 	}
 
 	if (p->cpu_thread && (p->cpu_compatible || p->ppc_mode || p->cpu_memory_cycle_exact || p->cpu_model < 68020)) {
@@ -318,7 +304,7 @@ void fixup_cpu (struct uae_prefs *p)
 	if (p->cpu_model >= 68040 && p->cachesize && p->cpu_compatible)
 		p->cpu_compatible = false;
 
-	if ((p->cpu_model < 68030 || p->cachesize) && p->mmu_model) {
+	if (!cpu_selection_mmu(p->cpu_model, p->cachesize != 0) && p->mmu_model) {
 		error_log (_T("MMU emulation requires 68030/040/060 and it is not JIT compatible."));
 		p->mmu_model = 0;
 	}
@@ -386,7 +372,7 @@ void fixup_cpu (struct uae_prefs *p)
 		error_log(_T("Cycle-exact mode requires at least Disabled but emulated sound setting."));
 	}
 
-	if (p->cpu_data_cache && (!p->cpu_compatible || p->cachesize || p->cpu_model < 68030)) {
+	if (p->cpu_data_cache && !cpu_selection_data_cache(p->cpu_model, p->cpu_compatible, p->cachesize != 0)) {
 		p->cpu_data_cache = false;
 		error_log(_T("Data cache emulation requires More compatible, is not JIT compatible, 68030+ only."));
 	}
@@ -882,6 +868,262 @@ void uae_restart(struct uae_prefs *p, int opengui, const TCHAR *cfgfile)
 	target_restart ();
 }
 
+extern int console_logging, pngprint, log_scsi, log_scsiemu;
+extern int enable_ds_partition_hdf, log_filesys, log_net, log_sercon;
+extern int log_a2065, a2065_promiscuous, log_uaeserial, log_vsync;
+extern int log_bsd, clipboard_debug, clipboard_log, log_dsp, log_cd32;
+extern int floppy_writemode, multithread_enabled, log_ethernet;
+extern int debug_vsync_min_delay, debug_vsync_forced_delay, log_blitter;
+extern int inputdevice_logging, slirp_debug, log_ld, kb_mcu_log;
+extern int inputrecord_debug;
+extern TCHAR *conlogfile;
+
+static int core_arg_value(const TCHAR *s)
+{
+	int base = 10;
+	TCHAR *end;
+	if (s[0] == '0' && _totupper(s[1]) == 'X') {
+		s += 2;
+		base = 16;
+	}
+	int value = _tcstol(s, &end, base);
+	return *s && !*end ? value : 0;
+}
+
+int parse_core_arg(const TCHAR *argx, const TCHAR *np, const TCHAR *np2)
+{
+	if (!argx || (argx[0] != '-' && argx[0] != '/')) {
+		return 0;
+	}
+	const TCHAR *arg = argx + 1;
+	if (!_tcscmp(arg, _T("convert")) && np && np2) {
+		zfile_convertimage(np, np2);
+		return -1;
+	}
+
+	if (!_tcscmp(arg, _T("log"))) {
+		console_logging = 1;
+		return 1;
+	}
+
+#ifdef PARALLEL_PORT
+	if (!_tcscmp(arg, _T("pngprint"))) {
+		pngprint = 1;
+		return 1;
+	}
+#endif
+
+	if (!_tcscmp(arg, _T("scsilog"))) {
+		log_scsi = 1;
+		return 1;
+	}
+
+	if (!_tcscmp(arg, _T("scsiemulog"))) {
+		log_scsiemu = 1;
+		return 1;
+	}
+
+#ifdef FILESYS
+	if (!_tcscmp(arg, _T("ds_partition_hdf"))) {
+		enable_ds_partition_hdf = 1;
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("filesyslog"))) {
+		log_filesys = 1;
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("filesyslog2"))) {
+		log_filesys = 2;
+		return 1;
+	}
+#endif
+
+#ifdef SANA2
+	if (!_tcscmp(arg, _T("netlog"))) {
+		log_net = 1;
+		return 1;
+	}
+#endif
+
+#ifdef SERIAL_PORT
+	if (!_tcscmp(arg, _T("serlog"))) {
+		log_sercon = 1;
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("serlog2"))) {
+		log_sercon = 2;
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("serlog3"))) {
+		log_sercon = 3;
+		return 1;
+	}
+#endif
+
+#ifdef A2065
+	if (!_tcscmp(arg, _T("a2065log"))) {
+		log_a2065 = 1;
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("a2065log2"))) {
+		log_a2065 = 2;
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("a2065log3"))) {
+		log_a2065 = 3;
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("a2065_promiscuous"))) {
+		a2065_promiscuous = 1;
+		return 1;
+	}
+#endif
+
+#ifdef UAESERIAL
+	if (!_tcscmp(arg, _T("seriallog"))) {
+		log_uaeserial = 1;
+		return 1;
+	}
+#endif
+
+	if (!_tcscmp(arg, _T("vsynclog")) || !_tcscmp(arg, _T("vsynclog1"))) {
+		log_vsync |= 1;
+		return 1;
+	}
+
+	if (!_tcscmp(arg, _T("vsynclog2"))) {
+		log_vsync |= 2;
+		return 1;
+	}
+
+#ifdef BSDSOCKET
+	if (!_tcscmp(arg, _T("bsdlog"))) {
+		log_bsd = 1;
+		return 1;
+	}
+#endif
+
+	if (!_tcscmp(arg, _T("clipboarddebug"))) {
+		clipboard_debug = 1;
+		return 1;
+	}
+
+	if (!_tcscmp(arg, _T("clipboardlog"))) {
+		clipboard_log = 1;
+		return 1;
+	}
+
+#ifdef WITH_DSP
+	if (!_tcscmp(arg, _T("dsplog"))) {
+		log_dsp = 1;
+		return 1;
+	}
+#endif
+
+	if (!_tcscmp(arg, _T("quittogui"))) {
+		quit_to_gui = 1;
+		return 1;
+	}
+
+#ifdef CD32
+	if (!_tcscmp(arg, _T("cd32log"))) {
+		if (log_cd32 < 1) {
+			log_cd32 = 1;
+		}
+		return 1;
+	}
+	if (!_tcscmp(arg, _T("cd32log2"))) {
+		if (log_cd32 < 2) {
+			log_cd32 = 2;
+		}
+		return 1;
+	}
+#endif
+
+	if (!_tcscmp(arg, _T("romlist"))) {
+		void dumpromlist(void);
+		dumpromlist();
+		return -1;
+	}
+
+	if (!_tcscmp(arg, _T("rawextadf"))) {
+		floppy_writemode = -1;
+		return 1;
+	}
+
+	if (!_tcscmp(arg, _T("nomt"))) {
+		multithread_enabled = 0;
+		return 1;
+	}
+
+#ifdef SANA2
+	if (!_tcscmp(arg, _T("ethlog")) && np) {
+		log_ethernet = core_arg_value(np);
+		return 2;
+	}
+#endif
+
+	if (!_tcscmp (arg, _T("vsync_min_delay")) && np) {
+		debug_vsync_min_delay = core_arg_value (np);
+		return 2;
+	}
+
+	if (!_tcscmp (arg, _T("vsync_forced_delay")) && np) {
+		debug_vsync_forced_delay = core_arg_value (np);
+		return 2;
+	}
+
+	if (!_tcscmp (arg, _T("blitterdebug")) && np) {
+		log_blitter = core_arg_value (np);
+		return 2;
+	}
+
+	if (!_tcscmp (arg, _T("inputdevicelog")) && np) {
+		inputdevice_logging = core_arg_value (np);
+		return 2;
+	}
+
+#ifdef WITH_SLIRP
+	if (!_tcscmp (arg, _T("slirplog")) && np) {
+		slirp_debug = core_arg_value (np);
+		return 2;
+	}
+#endif
+
+#ifdef ARCADIA
+	if (!_tcscmp (arg, _T("ldlog")) && np) {
+		log_ld = core_arg_value (np);
+		return 2;
+	}
+#endif
+
+	if (!_tcscmp (arg, _T("kbmculog")) && np) {
+		kb_mcu_log = core_arg_value (np);
+		return 2;
+	}
+
+	if (!_tcscmp(arg, _T("jitevent")) && np) {
+		pissoff_value = core_arg_value(np) * CYCLE_UNIT;
+		return 2;
+	}
+
+	if (!_tcscmp(arg, _T("cpuevent")) && np) {
+		pissoff_nojit_value = core_arg_value(np) * CYCLE_UNIT;
+		return 2;
+	}
+
+	if (!_tcscmp (arg, _T("inputrecorddebug")) && np) {
+		inputrecord_debug = core_arg_value (np);
+		return 2;
+	}
+
+	if (!_tcscmp(arg, _T("conlogfile")) && np) {
+		conlogfile = my_strdup(np);
+		return 2;
+	}
+	return 0;
+}
+
 #ifndef DONT_PARSE_CMDLINE
 
 void usage (void)
@@ -979,6 +1221,16 @@ static void parse_cmdline (int argc, TCHAR **argv)
 	started = true;
 
 	for (i = 1; i < argc; i++) {
+		int consumed = argv[i][0] == '-'
+			? parse_core_arg(argv[i], i + 1 < argc ? argv[i + 1] : NULL,
+				i + 2 < argc ? argv[i + 2] : NULL) : 0;
+		if (consumed < 0) {
+			exit(0);
+		}
+		if (consumed > 0) {
+			i += consumed - 1;
+			continue;
+		}
 		if (_tcsncmp(argv[i], _T("-cli="), 5) == 0 || _tcsncmp(argv[i], _T("--cli="), 6) == 0) {
 			console_emulation = 1;
 			TCHAR *path = _tcschr(argv[i], _T('=')) + 1;
