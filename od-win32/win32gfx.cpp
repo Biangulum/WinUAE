@@ -41,6 +41,7 @@
 #include "serial.h"
 #include "avioutput.h"
 #include "gfxfilter.h"
+#include "od-generic/scaler.h"
 #include "parser.h"
 #include "lcd.h"
 #include "sampler.h"
@@ -641,7 +642,6 @@ int getrefreshrate(int monid, int width, int height)
 
 static void addmode (struct MultiDisplay *md, DEVMODE *dm, int rawmode)
 {
-	int i, j;
 	int w = dm->dmPelsWidth;
 	int h = dm->dmPelsHeight;
 	int d = dm->dmBitsPerPel;
@@ -665,90 +665,12 @@ static void addmode (struct MultiDisplay *md, DEVMODE *dm, int rawmode)
 		lace = (dm->dmDisplayFlags & DM_INTERLACED) != 0;
 	}
 
-	i = 0;
-	while (md->DisplayModes[i].inuse) {
-		if (md->DisplayModes[i].res.width == w && md->DisplayModes[i].res.height == h) {
-			for (j = 0; j < MAX_REFRESH_RATES; j++) {
-				if (md->DisplayModes[i].refresh[j] == 0 || md->DisplayModes[i].refresh[j] == freq)
-					break;
-			}
-			if (j < MAX_REFRESH_RATES) {
-				md->DisplayModes[i].refresh[j] = freq;
-				md->DisplayModes[i].refreshtype[j] = (lace ? REFRESH_RATE_LACE : 0) | (rawmode ? REFRESH_RATE_RAW : 0);
-				md->DisplayModes[i].refresh[j + 1] = 0;
-				if (!lace)
-					md->DisplayModes[i].lace = false;
-				return;
-			}
-		}
-		i++;
-	}
-	i = 0;
-	while (md->DisplayModes[i].inuse) {
-		i++;
-	}
-	if (i >= MAX_PICASSO_MODES - 1) {
-		return;
-	}
-	md->DisplayModes[i].inuse = true;
-	md->DisplayModes[i].rawmode = rawmode;
-	md->DisplayModes[i].lace = lace;
-	md->DisplayModes[i].res.width = w;
-	md->DisplayModes[i].res.height = h;
-	md->DisplayModes[i].refresh[0] = freq;
-	md->DisplayModes[i].refreshtype[0] = (lace ? REFRESH_RATE_LACE : 0) | (rawmode ? REFRESH_RATE_RAW : 0);
-	md->DisplayModes[i].refresh[1] = 0;
-	_stprintf (md->DisplayModes[i].name, _T("%dx%d%s"),
-		md->DisplayModes[i].res.width, md->DisplayModes[i].res.height,
-		lace ? _T("i") : _T(""));
+    host_display_mode_add(md->DisplayModes, MAX_PICASSO_MODES, w, h, freq, rawmode, lace);
 }
 
-static int _cdecl resolution_compare (const void *a, const void *b)
+static void sortmodes(MultiDisplay *md)
 {
-	struct PicassoResolution *ma = (struct PicassoResolution *)a;
-	struct PicassoResolution *mb = (struct PicassoResolution *)b;
-	if (ma->res.width < mb->res.width)
-		return -1;
-	if (ma->res.width > mb->res.width)
-		return 1;
-	if (ma->res.height < mb->res.height)
-		return -1;
-	if (ma->res.height > mb->res.height)
-		return 1;
-	return 0;
-}
-
-static void sortmodes (struct MultiDisplay *md)
-{
-	int	i, idx = -1;
-	int pw = -1, ph = -1;
-
-	i = 0;
-	while (md->DisplayModes[i].inuse) {
-		i++;
-	}
-	qsort (md->DisplayModes, i, sizeof (struct PicassoResolution), resolution_compare);
-	for (i = 0; md->DisplayModes[i].inuse; i++) {
-		int j, k;
-		for (j = 0; md->DisplayModes[i].refresh[j]; j++) {
-			for (k = j + 1; md->DisplayModes[i].refresh[k]; k++) {
-				if (md->DisplayModes[i].refresh[j] > md->DisplayModes[i].refresh[k]) {
-					int t = md->DisplayModes[i].refresh[j];
-					md->DisplayModes[i].refresh[j] = md->DisplayModes[i].refresh[k];
-					md->DisplayModes[i].refresh[k] = t;
-					t = md->DisplayModes[i].refreshtype[j];
-					md->DisplayModes[i].refreshtype[j] = md->DisplayModes[i].refreshtype[k];
-					md->DisplayModes[i].refreshtype[k] = t;
-				}
-			}
-		}
-		if (md->DisplayModes[i].res.height != ph || md->DisplayModes[i].res.width != pw) {
-			ph = md->DisplayModes[i].res.height;
-			pw = md->DisplayModes[i].res.width;
-			idx++;
-		}
-		md->DisplayModes[i].residx = idx;
-	}
+    host_display_modes_sort(md->DisplayModes, MAX_PICASSO_MODES, true);
 }
 
 #if 0
@@ -1348,8 +1270,8 @@ void show_screen(int monid, int mode)
 		if (ap->gfx_vsync < 0 && ap->gfx_strobo && currprefs.gfx_api < 2) {
 			float vblank = vblank_hz;
 			if (WIN32GFX_IsPicassoScreen(mon)) {
-				if (currprefs.win32_rtgvblankrate > 0)
-					vblank = currprefs.win32_rtgvblankrate;
+				if (currprefs.host_rtgvblankrate > 0)
+					vblank = currprefs.host_rtgvblankrate;
 			}
 			bool ok = true;
 			int ratio = currprefs.lightboost_strobo_ratio;
@@ -1437,163 +1359,18 @@ void flush_clear_screen (struct vidbuffer *vb)
 	}
 }
 
-float filterrectmult(int v1, float v2, int dmode)
+void getrtgfilterdata(int monid, displayscale *ds)
 {
-	float v = v1 / v2;
-	int vv = (int)(v + 0.5f);
-	if (v > 1.5f && vv * v2 <= v1 && vv * (v2 + vv - 1) >= v1) {
-		return (float)vv;
-	}
-	if (!dmode) {
-		return v;
-	}
-	if (v > 0.2f && v < 0.3f) {
-		return 0.25f;
-	}
-	if (v > 0.4f && v < 0.6f) {
-		return 0.5f;
-	}
-	return (float)(int)(v + 0.5f);
-}
-
-void getrtgfilterdata(int monid, struct displayscale *ds)
-{
-	struct AmigaMonitor *mon = &AMonitors[monid];
-	struct amigadisplay *ad = &adisplays[monid];
-	struct picasso96_state_struct *state = &picasso96_state[monid];
-
-	picasso_offset_x = 0;
-	picasso_offset_y = 0;
-	picasso_offset_mx = 1.0;
-	picasso_offset_my = 1.0;
-
-	ds->mode = 0;
-	ds->outwidth = mon->currentmode.native_width;
-	ds->outheight = mon->currentmode.native_height;
-
-	if (!ad->picasso_on)
-		return;
-
-	if (currprefs.gf[GF_RTG].gfx_filter_horiz_zoom_mult > 0) {
-		picasso_offset_mx *= currprefs.gf[GF_RTG].gfx_filter_horiz_zoom_mult;
-	}
-	if (currprefs.gf[GF_RTG].gfx_filter_vert_zoom_mult > 0) {
-		picasso_offset_my *= currprefs.gf[GF_RTG].gfx_filter_vert_zoom_mult;
-	}
-
-	if (!mon->scalepicasso || currprefs.win32_rtgnonsquarepixels)
-		return;
-
-	int srcratio, dstratio;
-	int srcwidth, srcheight;
-	int outwidth, outheight;
-
-	srcwidth = state->Width;
-	srcheight = state->Height;
-	if (!srcwidth || !srcheight)
-		return;
-
-	float mx = (float)mon->currentmode.native_width / srcwidth;
-	float my = (float)mon->currentmode.native_height / srcheight;
-
-	if (mon->scalepicasso == RTG_MODE_INTEGER_SCALE) {
-		float fdivx = (float)mon->currentmode.native_width / srcwidth;
-		float fdivy = (float)mon->currentmode.native_height / srcheight;
-		float fmul = (float)(fdivx < 1.0 || fdivy < 1.0 ? 1 : (fdivx > fdivy ? fdivy : fdivx));
-		int mul = (int)(fmul * (1 << (currprefs.gf[GF_RTG].gfx_filter_integerscalelimit)));
-		fmul = (float)mul / (1 << (currprefs.gf[GF_RTG].gfx_filter_integerscalelimit));
-		if (fdivx < 1.0 || fdivy < 1.0) {
-			float adjust = 0.5f / (1 << (currprefs.gf[GF_RTG].gfx_filter_integerscalelimit));
-			fmul = 1.0f;
-			float prevfmul = fmul;
-			for(;;) {
-				if (fmul <= adjust) {
-					adjust /= 2.0f;
-					if (adjust < 0.10f) {
-						break;
-					}
-				}
-				fmul -= adjust;
-				if (fmul < 0.10f) {
-					fmul = 0.10f;
-					break;
-				}
-				if ((float)mon->currentmode.native_width / srcwidth > 2 * fmul || ((float)mon->currentmode.native_height / srcheight > 2 * fmul)) {
-					fmul = prevfmul;
-					break;
-				}
-				prevfmul = fmul;
-			}
-#if 0
-			if ((float)mon->currentmode.native_width / srcwidth <= 0.95f || ((float)mon->currentmode.native_height / srcheight <= 0.95f)) {
-				fmul = 1.0f / 2.0f;
-			}
-			if ((float)mon->currentmode.native_width / srcwidth <= 0.45f || ((float)mon->currentmode.native_height / srcheight <= 0.45f)) {
-				fmul = 1.0f / 4.0f;
-			}
-#endif
-		}
-		ds->outwidth = (int)(mon->currentmode.native_width / fmul);
-		ds->outheight = (int)(mon->currentmode.native_height / fmul);
-		int xx = (int)((mon->currentmode.native_width / fmul - srcwidth) / 2);
-		int yy = (int)((mon->currentmode.native_height / fmul - srcheight) / 2);
-		picasso_offset_x = -xx;
-		picasso_offset_y = -yy;
-		mx = fmul;
-		my = fmul;
-		outwidth = srcwidth;
-		outheight = srcheight;
-		ds->mode = 1;
-	} else if (mon->scalepicasso == RTG_MODE_CENTER) {
-		int xx = (mon->currentmode.native_width - srcwidth) / 2;
-		int yy = (mon->currentmode.native_height - srcheight) / 2;
-		picasso_offset_x = -xx;
-		picasso_offset_y = -yy;
-		ds->outwidth = mon->currentmode.native_width;
-		ds->outheight = mon->currentmode.native_height;
-		outwidth = ds->outwidth;
-		outheight = ds->outheight;
-		mx = my = 1.0;
-	} else {
-		if (currprefs.win32_rtgscaleaspectratio < 0) {
-			// automatic
-			srcratio = srcwidth * ASPECTMULT / srcheight;
-			dstratio = mon->currentmode.native_width * ASPECTMULT / mon->currentmode.native_height;
-		} else if (currprefs.win32_rtgscaleaspectratio == 0) {
-			// none
-			srcratio = dstratio = 0;
-		} else {
-			// manual
-			dstratio = (currprefs.win32_rtgscaleaspectratio / ASPECTMULT) * ASPECTMULT / (currprefs.win32_rtgscaleaspectratio & (ASPECTMULT - 1));
-			srcratio = srcwidth * ASPECTMULT / srcheight;
-		}
-
-		if (srcratio == dstratio) {
-			ds->outwidth = srcwidth;
-			ds->outheight = srcheight;
-		} else if (srcratio > dstratio) {
-			int yy = srcheight * srcratio / dstratio;
-			ds->outwidth = srcwidth;
-			ds->outheight = yy;
-			picasso_offset_y = (state->Height - yy) / 2;
-		} else {
-			int xx = srcwidth * dstratio / srcratio;
-			ds->outwidth = xx;
-			ds->outheight = srcheight;
-			picasso_offset_x = (state->Width - xx) / 2;
-		}
-		outwidth = ds->outwidth;
-		outheight = ds->outheight;
-	}
-
-	ds->xoffset += picasso_offset_x;
-	ds->yoffset += picasso_offset_y;
-
-	picasso_offset_x /= state->HLineDBL;
-	picasso_offset_y /= state->VLineDBL;
-
-	picasso_offset_mx = (float)(srcwidth * mx * state->HLineDBL) / outwidth;
-	picasso_offset_my = (float)(srcheight * my * state->VLineDBL) / outheight;
+ AmigaMonitor *mon = &AMonitors[monid];
+ const picasso96_state_struct *state = &picasso96_state[monid];
+ host_rtg_offset offset;
+ host_rtg_filterdata(ds, mon->currentmode.native_width, mon->currentmode.native_height,
+  state->Width, state->Height, state->HLineDBL, state->VLineDBL,
+  mon->scalepicasso, adisplays[monid].picasso_on, &offset);
+ picasso_offset_x = offset.x;
+ picasso_offset_y = offset.y;
+ picasso_offset_mx = offset.mx;
+ picasso_offset_my = offset.my;
 }
 
 static uae_u8 *gfx_lock_picasso2(int monid, bool fullupdate)
@@ -1770,15 +1547,15 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 
 #ifdef PICASSO96
 
-	if (currprefs.win32_rtgvblankrate == 0) {
+	if (currprefs.host_rtgvblankrate == 0) {
 		currprefs.gfx_apmode[1].gfx_refreshrate = currprefs.gfx_apmode[0].gfx_refreshrate;
 		if (currprefs.gfx_apmode[0].gfx_interlaced) {
 			currprefs.gfx_apmode[1].gfx_refreshrate *= 2;
 		}
-	} else if (currprefs.win32_rtgvblankrate < 0) {
+	} else if (currprefs.host_rtgvblankrate < 0) {
 		currprefs.gfx_apmode[1].gfx_refreshrate = 0;
 	} else {
-		currprefs.gfx_apmode[1].gfx_refreshrate = currprefs.win32_rtgvblankrate;
+		currprefs.gfx_apmode[1].gfx_refreshrate = currprefs.host_rtgvblankrate;
 	}
 
 	if (mon->screen_is_picasso) {
@@ -1808,7 +1585,7 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 	if (mon->screen_is_picasso) {
 		bool diff = state->Width != mon->currentmode.native_width || state->Height != mon->currentmode.native_height;
 		if (isfullscreen () < 0) {
-			if ((currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_CENTER || currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_SCALE || currprefs.win32_rtgallowscaling) && diff) {
+			if ((currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_CENTER || currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_SCALE || currprefs.host_rtgallowscaling) && diff) {
 				mon->scalepicasso = RTG_MODE_SCALE;
 			}
 			if (currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_INTEGER_SCALE && diff) {
@@ -1817,7 +1594,7 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 			if (currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_CENTER && diff) {
 				mon->scalepicasso = currprefs.gf[GF_RTG].gfx_filter_autoscale;
 			}
-			if (!mon->scalepicasso && currprefs.win32_rtgscaleaspectratio) {
+			if (!mon->scalepicasso && currprefs.host_rtgscaleaspectratio) {
 				mon->scalepicasso = -1;
 			}
 		} else if (isfullscreen () > 0) {
@@ -1830,7 +1607,7 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 			}
 			if (currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_CENTER)
 				mon->scalepicasso = currprefs.gf[GF_RTG].gfx_filter_autoscale;
-			if (!mon->scalepicasso && currprefs.win32_rtgscaleaspectratio)
+			if (!mon->scalepicasso && currprefs.host_rtgscaleaspectratio)
 				mon->scalepicasso = -1;
 		} else if (isfullscreen () == 0) {
 			if (currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_INTEGER_SCALE) {
@@ -1839,9 +1616,9 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 				mon->currentmode.current_height = currprefs.gfx_monitor[mon->monitor_id].gfx_size.height;
 			} else if (currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_CENTER) {
 				if (currprefs.gfx_monitor[mon->monitor_id].gfx_size.width < state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height < state->Height) {
-					if (!currprefs.win32_rtgallowscaling) {
+					if (!currprefs.host_rtgallowscaling) {
 						;
-					} else if (currprefs.win32_rtgscaleaspectratio) {
+					} else if (currprefs.host_rtgscaleaspectratio) {
 						mon->scalepicasso = -1;
 						mon->currentmode.current_width = currprefs.gfx_monitor[mon->monitor_id].gfx_size.width;
 						mon->currentmode.current_height = currprefs.gfx_monitor[mon->monitor_id].gfx_size.height;
@@ -1854,7 +1631,7 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 			} else if (currprefs.gf[GF_RTG].gfx_filter_autoscale == RTG_MODE_SCALE) {
 				if (currprefs.gfx_monitor[mon->monitor_id].gfx_size.width > state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height > state->Height)
 					mon->scalepicasso = RTG_MODE_SCALE;
-				if ((currprefs.gfx_monitor[mon->monitor_id].gfx_size.width != state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height != state->Height) && currprefs.win32_rtgallowscaling) {
+				if ((currprefs.gfx_monitor[mon->monitor_id].gfx_size.width != state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height != state->Height) && currprefs.host_rtgallowscaling) {
 					mon->scalepicasso = RTG_MODE_SCALE;
 				} else if (currprefs.gfx_monitor[mon->monitor_id].gfx_size.width < state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height < state->Height) {
 					// no always scaling and smaller? Back to normal size and set new configured max size
@@ -1862,13 +1639,13 @@ static void update_gfxparams(struct AmigaMonitor *mon)
 					mon->currentmode.current_height = changed_prefs.gfx_monitor[mon->monitor_id].gfx_size_win.height = state->Height;
 				} else if (currprefs.gfx_monitor[mon->monitor_id].gfx_size.width == state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height == state->Height) {
 					;
-				} else if (!mon->scalepicasso && currprefs.win32_rtgscaleaspectratio) {
+				} else if (!mon->scalepicasso && currprefs.host_rtgscaleaspectratio) {
 					mon->scalepicasso = -1;
 				}
 			} else {
-				if ((currprefs.gfx_monitor[mon->monitor_id].gfx_size.width != state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height != state->Height) && currprefs.win32_rtgallowscaling)
+				if ((currprefs.gfx_monitor[mon->monitor_id].gfx_size.width != state->Width || currprefs.gfx_monitor[mon->monitor_id].gfx_size.height != state->Height) && currprefs.host_rtgallowscaling)
 					mon->scalepicasso = RTG_MODE_SCALE;
-				if (!mon->scalepicasso && currprefs.win32_rtgscaleaspectratio)
+				if (!mon->scalepicasso && currprefs.host_rtgscaleaspectratio)
 					mon->scalepicasso = -1;
 			}
 		}
@@ -1920,7 +1697,7 @@ static int open_windows(struct AmigaMonitor *mon, bool mousecapture, bool starte
 	}
 
 	bool startactive = (started && mouseactive) || (!started && !currprefs.win32_start_uncaptured && !currprefs.win32_start_minimized);
-	bool startpaused = !started && ((currprefs.win32_start_minimized && currprefs.win32_iconified_pause) || (currprefs.win32_start_uncaptured && currprefs.win32_inactive_pause && isfullscreen() <= 0));
+	bool startpaused = !started && ((currprefs.win32_start_minimized && currprefs.host_iconified_pause) || (currprefs.win32_start_uncaptured && currprefs.host_inactive_pause && isfullscreen() <= 0));
 	bool startminimized = !started && currprefs.win32_start_minimized && isfullscreen() <= 0;
 	int input = 0;
 
@@ -1929,16 +1706,16 @@ static int open_windows(struct AmigaMonitor *mon, bool mousecapture, bool starte
 
 	int upd = 0;
 	if (startactive) {
-		setpriority(&priorities[currprefs.win32_active_capture_priority]);
+		setpriority(&priorities[currprefs.host_active_capture_priority]);
 		upd = 2;
 	} else if (startminimized) {
-		setpriority(&priorities[currprefs.win32_iconified_priority]);
+		setpriority(&priorities[currprefs.host_iconified_priority]);
 		setminimized(mon->monitor_id);
-		input = currprefs.win32_inactive_input;
+		input = currprefs.host_inactive_input;
 		upd = 1;
 	} else {
-		setpriority(&priorities[currprefs.win32_inactive_priority]);
-		input = currprefs.win32_inactive_input;
+		setpriority(&priorities[currprefs.host_inactive_priority]);
+		input = currprefs.host_inactive_input;
 		upd = 2;
 	}
 	if (upd > 1) {
@@ -2188,9 +1965,9 @@ int check_prefs_changed_gfx(void)
 	c |= currprefs.win32_nonotificationicon != changed_prefs.win32_nonotificationicon ? 32 : 0;
 	c |= currprefs.win32_borderless != changed_prefs.win32_borderless ? 32 : 0;
 	c |= currprefs.win32_blankmonitors != changed_prefs.win32_blankmonitors ? 32 : 0;
-	c |= currprefs.win32_rtgallowscaling != changed_prefs.win32_rtgallowscaling ? (2 | 8 | 64) : 0;
-	c |= currprefs.win32_rtgscaleaspectratio != changed_prefs.win32_rtgscaleaspectratio ? (8 | 64) : 0;
-	c |= currprefs.win32_rtgvblankrate != changed_prefs.win32_rtgvblankrate ? 8 : 0;
+	c |= currprefs.host_rtgallowscaling != changed_prefs.host_rtgallowscaling ? (2 | 8 | 64) : 0;
+	c |= currprefs.host_rtgscaleaspectratio != changed_prefs.host_rtgscaleaspectratio ? (8 | 64) : 0;
+	c |= currprefs.host_rtgvblankrate != changed_prefs.host_rtgvblankrate ? 8 : 0;
 
 
 	if (display_change_requested || c)
@@ -2294,9 +2071,9 @@ int check_prefs_changed_gfx(void)
 		currprefs.win32_borderless = changed_prefs.win32_borderless;
 		currprefs.win32_blankmonitors = changed_prefs.win32_blankmonitors;
 		currprefs.win32_statusbar = changed_prefs.win32_statusbar;
-		currprefs.win32_rtgallowscaling = changed_prefs.win32_rtgallowscaling;
-		currprefs.win32_rtgscaleaspectratio = changed_prefs.win32_rtgscaleaspectratio;
-		currprefs.win32_rtgvblankrate = changed_prefs.win32_rtgvblankrate;
+		currprefs.host_rtgallowscaling = changed_prefs.host_rtgallowscaling;
+		currprefs.host_rtgscaleaspectratio = changed_prefs.host_rtgscaleaspectratio;
+		currprefs.host_rtgvblankrate = changed_prefs.host_rtgvblankrate;
 
 		bool unacquired = false;
 		for (int monid = MAX_AMIGAMONITORS - 1; monid >= 0; monid--) {
@@ -2440,18 +2217,18 @@ int check_prefs_changed_gfx(void)
 		currprefs.keyboard_leds[2] != changed_prefs.keyboard_leds[2] ||
 		currprefs.input_mouse_untrap != changed_prefs.input_mouse_untrap ||
 		currprefs.win32_minimize_inactive != changed_prefs.win32_minimize_inactive ||
-		currprefs.win32_active_capture_priority != changed_prefs.win32_active_capture_priority ||
-		currprefs.win32_inactive_priority != changed_prefs.win32_inactive_priority ||
-		currprefs.win32_iconified_priority != changed_prefs.win32_iconified_priority ||
-		currprefs.win32_active_nocapture_nosound != changed_prefs.win32_active_nocapture_nosound ||
-		currprefs.win32_active_nocapture_pause != changed_prefs.win32_active_nocapture_pause ||
-		currprefs.win32_active_input != changed_prefs.win32_active_input ||
-		currprefs.win32_inactive_nosound != changed_prefs.win32_inactive_nosound ||
-		currprefs.win32_inactive_pause != changed_prefs.win32_inactive_pause ||
-		currprefs.win32_inactive_input != changed_prefs.win32_inactive_input ||
-		currprefs.win32_iconified_nosound != changed_prefs.win32_iconified_nosound ||
-		currprefs.win32_iconified_pause != changed_prefs.win32_iconified_pause ||
-		currprefs.win32_iconified_input != changed_prefs.win32_iconified_input ||
+		currprefs.host_active_capture_priority != changed_prefs.host_active_capture_priority ||
+		currprefs.host_inactive_priority != changed_prefs.host_inactive_priority ||
+		currprefs.host_iconified_priority != changed_prefs.host_iconified_priority ||
+		currprefs.host_active_nocapture_nosound != changed_prefs.host_active_nocapture_nosound ||
+		currprefs.host_active_nocapture_pause != changed_prefs.host_active_nocapture_pause ||
+		currprefs.host_active_input != changed_prefs.host_active_input ||
+		currprefs.host_inactive_nosound != changed_prefs.host_inactive_nosound ||
+		currprefs.host_inactive_pause != changed_prefs.host_inactive_pause ||
+		currprefs.host_inactive_input != changed_prefs.host_inactive_input ||
+		currprefs.host_iconified_nosound != changed_prefs.host_iconified_nosound ||
+		currprefs.host_iconified_pause != changed_prefs.host_iconified_pause ||
+		currprefs.host_iconified_input != changed_prefs.host_iconified_input ||
 		currprefs.win32_capture_always != changed_prefs.win32_capture_always ||
 		currprefs.win32_ctrl_F11_is_quit != changed_prefs.win32_ctrl_F11_is_quit ||
 		currprefs.win32_shutdown_notification != changed_prefs.win32_shutdown_notification ||
@@ -2467,18 +2244,18 @@ int check_prefs_changed_gfx(void)
 		currprefs.keyboard_leds[1] = changed_prefs.keyboard_leds[1];
 		currprefs.keyboard_leds[2] = changed_prefs.keyboard_leds[2];
 		currprefs.input_mouse_untrap = changed_prefs.input_mouse_untrap;
-		currprefs.win32_active_capture_priority = changed_prefs.win32_active_capture_priority;
-		currprefs.win32_inactive_priority = changed_prefs.win32_inactive_priority;
-		currprefs.win32_iconified_priority = changed_prefs.win32_iconified_priority;
-		currprefs.win32_active_nocapture_nosound = changed_prefs.win32_active_nocapture_nosound;
-		currprefs.win32_active_input = changed_prefs.win32_active_input;
-		currprefs.win32_active_nocapture_pause = changed_prefs.win32_active_nocapture_pause;
-		currprefs.win32_inactive_nosound = changed_prefs.win32_inactive_nosound;
-		currprefs.win32_inactive_pause = changed_prefs.win32_inactive_pause;
-		currprefs.win32_inactive_input = changed_prefs.win32_inactive_input;
-		currprefs.win32_iconified_nosound = changed_prefs.win32_iconified_nosound;
-		currprefs.win32_iconified_pause = changed_prefs.win32_iconified_pause;
-		currprefs.win32_iconified_input = changed_prefs.win32_iconified_input;
+		currprefs.host_active_capture_priority = changed_prefs.host_active_capture_priority;
+		currprefs.host_inactive_priority = changed_prefs.host_inactive_priority;
+		currprefs.host_iconified_priority = changed_prefs.host_iconified_priority;
+		currprefs.host_active_nocapture_nosound = changed_prefs.host_active_nocapture_nosound;
+		currprefs.host_active_input = changed_prefs.host_active_input;
+		currprefs.host_active_nocapture_pause = changed_prefs.host_active_nocapture_pause;
+		currprefs.host_inactive_nosound = changed_prefs.host_inactive_nosound;
+		currprefs.host_inactive_pause = changed_prefs.host_inactive_pause;
+		currprefs.host_inactive_input = changed_prefs.host_inactive_input;
+		currprefs.host_iconified_nosound = changed_prefs.host_iconified_nosound;
+		currprefs.host_iconified_pause = changed_prefs.host_iconified_pause;
+		currprefs.host_iconified_input = changed_prefs.host_iconified_input;
 		currprefs.win32_capture_always = changed_prefs.win32_capture_always;
 		currprefs.win32_ctrl_F11_is_quit = changed_prefs.win32_ctrl_F11_is_quit;
 		currprefs.win32_shutdown_notification = changed_prefs.win32_shutdown_notification;
@@ -2494,14 +2271,14 @@ int check_prefs_changed_gfx(void)
 		refreshtitle();
 		inputdevice_acquire (TRUE);
 #ifndef	_DEBUG
-		setpriority (&priorities[currprefs.win32_active_capture_priority]);
+		setpriority (&priorities[currprefs.host_active_capture_priority]);
 #endif
 		return 1;
 	}
 
-	if (currprefs.win32_samplersoundcard != changed_prefs.win32_samplersoundcard ||
+	if (currprefs.host_samplersoundcard != changed_prefs.host_samplersoundcard ||
 		currprefs.sampler_stereo != changed_prefs.sampler_stereo) {
-		currprefs.win32_samplersoundcard = changed_prefs.win32_samplersoundcard;
+		currprefs.host_samplersoundcard = changed_prefs.host_samplersoundcard;
 		currprefs.sampler_stereo = changed_prefs.sampler_stereo;
 		sampler_free ();
 	}
@@ -2535,13 +2312,13 @@ int check_prefs_changed_gfx(void)
 			serial_init ();
 #endif
 	}
-	if (currprefs.win32_midiindev != changed_prefs.win32_midiindev ||
-		currprefs.win32_midioutdev != changed_prefs.win32_midioutdev ||
-		currprefs.win32_midirouter != changed_prefs.win32_midirouter)
+	if (currprefs.host_midiindev != changed_prefs.host_midiindev ||
+		currprefs.host_midioutdev != changed_prefs.host_midioutdev ||
+		currprefs.host_midirouter != changed_prefs.host_midirouter)
 	{
-		currprefs.win32_midiindev = changed_prefs.win32_midiindev;
-		currprefs.win32_midioutdev = changed_prefs.win32_midioutdev;
-		currprefs.win32_midirouter = changed_prefs.win32_midirouter;
+		currprefs.host_midiindev = changed_prefs.host_midiindev;
+		currprefs.host_midioutdev = changed_prefs.host_midioutdev;
+		currprefs.host_midirouter = changed_prefs.host_midirouter;
 
 #ifdef SERIAL_PORT
 		serial_exit();
@@ -2833,7 +2610,7 @@ static int modeswitchneeded(struct AmigaMonitor *mon, struct winuae_currentmode 
 		if (mon->screen_is_picasso) {
 			if (state->Width < wc->current_width && state->Height < wc->current_height) {
 				int mode = currprefs.gf[GF_RTG].gfx_filter_autoscale;
-				if (mode == AUTOSCALE_STATIC_AUTO || (mode == AUTOSCALE_STATIC_NOMINAL && currprefs.win32_rtgallowscaling))
+				if (mode == AUTOSCALE_STATIC_AUTO || (mode == AUTOSCALE_STATIC_NOMINAL && currprefs.host_rtgallowscaling))
 					return 0;
 			}
 			if (state->Width != wc->current_width ||
@@ -2858,7 +2635,7 @@ static int modeswitchneeded(struct AmigaMonitor *mon, struct winuae_currentmode 
 			int mode = currprefs.gf[GF_RTG].gfx_filter_autoscale;
 			if (mode && ((wc->native_width > state->Width && wc->native_height >= state->Height) || (wc->native_height > state->Height && wc->native_width >= state->Width)))
 				return -1;
-			if (currprefs.win32_rtgallowscaling && (state->Width != wc->native_width || state->Height != wc->native_height))
+			if (currprefs.host_rtgallowscaling && (state->Width != wc->native_width || state->Height != wc->native_height))
 				return -1;
 #if 0
 			if (wc->native_width < state->Width || wc->native_height < state->Height)
@@ -2948,7 +2725,7 @@ static void updatepicasso96(struct AmigaMonitor *mon)
 	vidinfo->height = mon->currentmode.current_height;
 	vidinfo->width = mon->currentmode.current_width;
 	vidinfo->offset = 0;
-	vidinfo->splitypos = -1;
+	vidinfo->splitypos = mon->screen_is_picasso ? picasso_get_splitypos(mon->monitor_id) : -1;
 #endif
 }
 

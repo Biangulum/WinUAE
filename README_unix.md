@@ -25,6 +25,17 @@ This is an early macOS/Linux port of the WinUAE source tree. The current Unix bu
 - Full UI parity with the Windows configuration dialogs and platform packaging are still incomplete.
 - If SDL3 is not found, CMake currently builds a headless/null-video target.
 
+## Directory drives
+
+The `.uaem` metadata scheme was invented and implemented by Frode Solheim
+for FS-UAE, and later adopted by Amiberry. WinUAE's Unix directory drives
+use the Amiberry-compatible variant, including escaped comments, to store
+Amiga protection bits, comments and timestamps. Host names use UTF-8 and `%XX`
+escaping: for example, the Amiga name `Foo\Bar` is stored as `Foo%5cBar`,
+and a literal percent sign is stored as `%25`. Sidecars follow files when
+they are renamed or deleted. Existing `_UAEFSDB.___` name and metadata
+entries remain readable alongside sidecars.
+
 ## Requirements
 
 - CMake 3.20 or newer
@@ -365,18 +376,17 @@ relative to the installed `winuae` binary. App and CPack package targets fail
 if PPC support is enabled but the plugin is missing, unless
 `WINUAE_UNIX_EXTERNAL_QEMU_UAE_PLUGIN=ON` delegates it to a separate package.
 
-Local app bundles are ad-hoc signed by default. For Developer ID release signing and notarization, pass signing/notary settings through the packaging environment:
+Local app bundles are ad-hoc signed by default; no Apple developer account is needed to build, run or package WinUAE. For Developer ID release signing and notarization, pass signing/notary settings through the packaging environment:
 
 ```sh
-WINUAE_CODESIGN_IDENTITY="Developer ID Application: Example Team" \
-WINUAE_CODESIGN_OPTIONS="--options runtime --timestamp" \
-WINUAE_DMG_CODESIGN_IDENTITY="Developer ID Application: Example Team" \
-WINUAE_DMG_CODESIGN_OPTIONS="--timestamp" \
+WINUAE_CODESIGN_IDENTITY="Developer ID Application: Example Team (TEAMID)" \
 WINUAE_NOTARY_PROFILE=winuae-notary \
 cmake --build /tmp/winuae_cmake_build --target winuae_unix_macos_dmg -j
 ```
 
-`WINUAE_NOTARY_PROFILE` is the keychain profile configured with `xcrun notarytool store-credentials`. Leave it unset for local unsigned or ad-hoc signed builds.
+With a non-ad-hoc identity, every nested dylib, plugin and framework is signed inside-out with the hardened runtime and a secure timestamp, and the main executable gets a generated entitlements plist (`com.apple.security.cs.allow-jit` for the JIT, 86Box dynarec and QEMU TCG, plus camera and audio input for genlock capture and the sampler). `WINUAE_CODESIGN_OPTIONS`, `WINUAE_CODESIGN_ENTITLEMENTS`, `WINUAE_DMG_CODESIGN_IDENTITY` and `WINUAE_DMG_CODESIGN_OPTIONS` override those defaults, and `WINUAE_CODESIGN_KEYCHAIN` selects a non-default keychain.
+
+`WINUAE_NOTARY_PROFILE` is the keychain profile configured with `xcrun notarytool store-credentials`. Alternatively, set `WINUAE_NOTARY_KEY` (path to an App Store Connect API `.p8` key), `WINUAE_NOTARY_KEY_ID` and `WINUAE_NOTARY_ISSUER`. The DMG is submitted, stapled and checked with `spctl`; a rejected submission prints the notary log and fails the build. Leave these unset for local ad-hoc signed builds.
 
 To force a configure from scratch:
 

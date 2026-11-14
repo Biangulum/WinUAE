@@ -605,7 +605,7 @@ if(WINUAE_UNIX_WITH_PRINTER_EMULATION)
     endif()
     target_compile_definitions(winuae_unix_core_defs INTERFACE WINUAE_UNIX_WITH_PRINTER_EMULATION=1)
     list(APPEND WINUAE_UNIX_EXTRA_LIBRARIES ${WINUAE_FREETYPE_TARGET})
-    list(APPEND WINUAE_UNIX_EXTRA_SOURCES epsonprinter.cpp)
+    list(APPEND WINUAE_UNIX_EXTRA_SOURCES epsonprinter.cpp od-unix/printer_host.cpp)
 endif()
 
 set(WINUAE_UNIX_ENABLE_UAESCSI OFF)
@@ -1984,6 +1984,7 @@ if(WINUAE_UNIX_WITH_PROWIZARD)
     )
     list(APPEND WINUAE_UNIX_EXTRA_SOURCES
         moduleripper.cpp
+    od-generic/prowizard_host.cpp
         ${WINUAE_UNIX_PROWIZARD_C_SOURCES}
     )
     set_source_files_properties(${WINUAE_UNIX_PROWIZARD_C_SOURCES}
@@ -2074,7 +2075,8 @@ endif()
 if(WINUAE_UNIX_WITH_SAMPLER AND (WINUAE_UNIX_SDL3_TARGET OR SDL3_FOUND))
     set(WINUAE_UNIX_ENABLE_SAMPLER ON)
     target_compile_definitions(winuae_unix_core_defs INTERFACE WINUAE_UNIX_WITH_SAMPLER=1)
-    list(APPEND WINUAE_UNIX_EXTRA_SOURCES od-unix/sampler_sdl.cpp)
+    list(APPEND WINUAE_UNIX_EXTRA_SOURCES
+        od-generic/sampler_common.cpp od-unix/sampler_sdl.cpp)
 endif()
 
 set(WINUAE_CORE_SOURCES
@@ -2096,6 +2098,7 @@ set(WINUAE_CORE_SOURCES
     calc.cpp
     cd32_fmv.cpp
     cd32_fmv_genlock.cpp
+    od-generic/blkdev_ioctl_common.cpp
     cda_play.cpp
     cdrom.cpp
     cdtv.cpp
@@ -2152,11 +2155,12 @@ set(WINUAE_CORE_SOURCES
     fpp_softfloat.cpp
     framebufferboards.cpp
     fsdb.cpp
-    fsdb_unix.cpp
+    od-generic/fsdb_posix.cpp
     gayle.cpp
     gdb_monitor.cpp
     gdb_protocol.cpp
     gdb_server.cpp
+    od-generic/gdb_transport.cpp
     gdb_target.cpp
     gfxlib.cpp
     gfxutil.cpp
@@ -2188,6 +2192,7 @@ set(WINUAE_CORE_SOURCES
     readcpu.cpp
     rommgr.cpp
     rtc.cpp
+    rtg_convert.cpp
     savestate.cpp
     scp.cpp
     scsi.cpp
@@ -2209,14 +2214,24 @@ set(WINUAE_CORE_SOURCES
     softfloat/softfloat.cpp
     softfloat/softfloat_decimal.cpp
     softfloat/softfloat_fpsp.cpp
+    od-generic/console.cpp
     od-generic/clipboard.cpp
     od-generic/focus.cpp
     od-generic/target_defaults.cpp
     od-generic/hostcfg.cpp
+    od-generic/input_defaults.cpp
+    od-generic/input_hotkeys.cpp
+    od-generic/keymap.cpp
     od-generic/hostcfg_compat.cpp
+    od-generic/scaler.cpp
+    od-generic/rtg_scaler.cpp
+    od-generic/display_modes.cpp
     od-generic/mman.cpp
+    od-generic/sound_common.cpp
     od-generic/registry_ini.cpp
+    od-generic/avsync.cpp
     od-generic/screenshot_common.cpp
+    od-unix/blkdev_host.cpp
     od-unix/charset.cpp
     od-unix/clipboard.cpp
     od-unix/config.cpp
@@ -2321,6 +2336,17 @@ if(WINUAE_UNIX_BUILD_EXECUTABLE)
     )
 endif()
 
+add_executable(winuae_unix_fsdb_posix_test EXCLUDE_FROM_ALL
+    od-generic/fsdb_posix.cpp
+    od-generic/fsdb_posix_test.cpp
+)
+target_include_directories(winuae_unix_fsdb_posix_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_fsdb_posix_test)
+
 add_executable(winuae_unix_path_expand_test EXCLUDE_FROM_ALL
     od-unix/path_expand.cpp
     od-unix/path_expand_test.cpp
@@ -2357,6 +2383,18 @@ target_include_directories(winuae_unix_socket_results_test PRIVATE
 target_compile_definitions(winuae_unix_socket_results_test PRIVATE BSDSOCKET=1)
 winuae_unix_register_test(winuae_unix_socket_results_test)
 
+add_executable(winuae_unix_sound_common_test EXCLUDE_FROM_ALL
+    od-generic/sound_common.cpp
+    od-generic/sound_common_test.cpp
+)
+target_compile_definitions(winuae_unix_sound_common_test PRIVATE AVIOUTPUT=1)
+target_include_directories(winuae_unix_sound_common_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_sound_common_test)
+
 add_executable(winuae_unix_threading_test EXCLUDE_FROM_ALL
     od-unix/threading.cpp
     od-unix/threading_test.cpp
@@ -2390,6 +2428,30 @@ target_include_directories(winuae_unix_clipboard_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 winuae_unix_register_test(winuae_unix_clipboard_test)
+add_executable(winuae_unix_input_policy_test EXCLUDE_FROM_ALL
+    od-generic/input_defaults.cpp
+    od-generic/keymap.cpp
+    od-generic/input_hotkeys.cpp
+    od-generic/input_policy_test.cpp
+)
+target_include_directories(winuae_unix_input_policy_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_input_policy_test)
+
+add_executable(winuae_unix_console_test EXCLUDE_FROM_ALL
+    od-generic/console.cpp
+    od-generic/console_test.cpp
+)
+target_include_directories(winuae_unix_console_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_console_test)
+
 add_executable(winuae_unix_screenshot_common_test EXCLUDE_FROM_ALL
     od-generic/screenshot_common.cpp
     od-unix/screenshot_common_test.cpp
@@ -2400,6 +2462,50 @@ target_include_directories(winuae_unix_screenshot_common_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 winuae_unix_register_test(winuae_unix_screenshot_common_test)
+
+add_executable(winuae_unix_avsync_test EXCLUDE_FROM_ALL
+    od-generic/avsync.cpp
+    od-generic/avsync_test.cpp
+)
+target_include_directories(winuae_unix_avsync_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_avsync_test)
+
+add_executable(winuae_unix_scaler_test EXCLUDE_FROM_ALL
+    od-generic/rtg_scaler.cpp
+    od-generic/display_modes.cpp
+    od-generic/scaler_test.cpp
+)
+target_include_directories(winuae_unix_scaler_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_scaler_test)
+
+add_executable(winuae_unix_picasso96_abi_test EXCLUDE_FROM_ALL
+    od-generic/picasso96_abi_test.cpp
+)
+target_include_directories(winuae_unix_picasso96_abi_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_picasso96_abi_test)
+
+add_executable(winuae_unix_rtg_convert_test EXCLUDE_FROM_ALL
+    rtg_convert.cpp
+    od-generic/rtg_convert_test.cpp
+)
+target_include_directories(winuae_unix_rtg_convert_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_rtg_convert_test)
 
 add_executable(winuae_unix_uaenet_test EXCLUDE_FROM_ALL
     od-generic/uaenet.cpp
@@ -2412,6 +2518,17 @@ target_include_directories(winuae_unix_uaenet_test PRIVATE
 )
 target_link_libraries(winuae_unix_uaenet_test PRIVATE pthread)
 winuae_unix_register_test(winuae_unix_uaenet_test)
+
+add_executable(winuae_unix_cd_ioctl_test EXCLUDE_FROM_ALL
+    od-generic/blkdev_ioctl_common.cpp
+    od-generic/blkdev_ioctl_common_test.cpp
+)
+target_include_directories(winuae_unix_cd_ioctl_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/od-unix"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+winuae_unix_register_test(winuae_unix_cd_ioctl_test)
 
 add_executable(winuae_unix_serial_helpers_test EXCLUDE_FROM_ALL
     od-unix/serial_helpers.cpp
@@ -2874,6 +2991,9 @@ if(TARGET winuae_unix AND NOT APPLE)
     if(NOT APPLE)
         install(FILES od-unix/share/applications/net.winuae.WinUAE.desktop
             DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
+        )
+        install(FILES od-unix/share/metainfo/net.winuae.WinUAE.metainfo.xml
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo"
         )
         install(FILES od-unix/share/mime/packages/net.winuae.WinUAE.xml
             DESTINATION "${CMAKE_INSTALL_DATADIR}/mime/packages"
