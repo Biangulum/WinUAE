@@ -36,7 +36,7 @@ package. The fork's MSBuild settings are not applied to the CMake projects in
 | `unrar` | `plugins\unrar_arm64.dll` | [UnRAR](https://www.rarlab.com/rar_add.htm) 7.3.1 source | UnRAR freeware licence |
 | `lua` | `deps\lib\arm64\luastatic.lib` | [Lua](https://www.lua.org/) 5.2.4 | MIT |
 | `enet` | `deps\lib\arm64\enet.lib` | [ENet](http://enet.bespin.org/) 1.2 | MIT |
-| `openal` | `OpenAL32.dll`, `deps\lib\arm64\OpenAL32.lib` | [OpenAL Soft](https://github.com/kcat/openal-soft) 1.25.2 | LGPL 2.1 |
+| `openal` | `OpenAL32.dll`, `deps\lib\arm64\OpenAL32.lib` | [OpenAL Soft](https://github.com/kcat/openal-soft) 1.25.2 with upstream fix 7f9c6de (MSVC 14.52) | LGPL 2.1 |
 | `floppybridge` | `plugins\FloppyBridge_arm64.dll` | [FloppyDriveBridge](https://github.com/RobSmithDev/FloppyDriveBridge) `710fa15` (1.6.0.5) | MPL 2.0 / GPL 2 or later |
 
 Archives are checked against a pinned SHA-256, git sources against a pinned

@@ -247,8 +247,20 @@ function Build-ENet {
 
 # OpenAL Soft 1.25.2 (LGPL 2.1, used as a separate DLL). Installs the import
 # library as deps\lib\arm64\OpenAL32.lib and OpenAL32.dll next to the exe.
+#
+# 1.25.2 does not compile with the MSVC 14.52 STL, which no longer accepts
+# &unique_ptr::operator* as a ranges projection (kcat/openal-soft issue 1303).
+# Upstream fixed it in 7f9c6de after 1.25.2; that commit's diff is applied here
+# until a release includes it.
 function Build-OpenAL {
 	$src = Get-Source 'openal-soft' 'https://github.com/kcat/openal-soft.git' 'b2c48f7718ef3fcf67921a8b6534c4914e328970'
+	$fix = '7f9c6de1162b1d4604b9a2f8bcd6c53021566221'
+	$patch = Join-Path $BuildDir 'openal-soft-7f9c6de.diff'
+	New-Item -ItemType Directory -Force $BuildDir | Out-Null
+	Invoke-Native git @('-C', $src, 'reset', '-q', '--hard')
+	Invoke-Native git @('-C', $src, 'fetch', '-q', '--depth', '2', 'origin', $fix)
+	Invoke-Native git @('-C', $src, 'diff', '--output', $patch, "$fix^", $fix)
+	Invoke-Native git @('-C', $src, 'apply', $patch)
 	$build = Join-Path $BuildDir 'openal-soft'
 	New-CleanDir $build
 	Invoke-Native $CMake @('-S', $src, '-B', $build, '-G', $CMakeGenerator, '-A', 'ARM64',

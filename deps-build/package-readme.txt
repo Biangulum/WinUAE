@@ -15,6 +15,7 @@ Third-party components (licence texts in licenses\):
 
   portaudio_arm64.dll             PortAudio 19.7.0          MIT-style
   OpenAL32.dll                    OpenAL Soft 1.25.2        LGPL 2.1
+                                  (with upstream fix 7f9c6de)
   plugins\CAPSImg_arm64.dll       SPS decoder library 5.1   SPS licence,
                                   (CAPSImg)                 non-commercial use only
   plugins\unrar_arm64.dll         UnRAR 7.3.1               UnRAR freeware licence
