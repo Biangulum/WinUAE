@@ -45,8 +45,10 @@ jobs:
           if ($LASTEXITCODE -eq 0) { break }
           Write-Host "Download attempt $i failed ($LASTEXITCODE), resuming"
         }
+        # Upstream replaces the zip in place when its libraries change (for
+        # example prowizard.lib); update the hash after checking what changed.
         $hash = (Get-FileHash -Algorithm SHA256 winuaeinclibs.zip).Hash
-        if ($hash -ne '19C39817FE7D92704980291714ACDE5ADD798151338695C3A0450C51F7C4B7B1') { throw "winuaeinclibs.zip has SHA-256 $hash" }
+        if ($hash -ne '81EAC66CF9AA4A86BF5147BA7F127C8F63D78C828BE5DC77B185EF29CCFB3052') { throw "winuaeinclibs.zip has SHA-256 $hash" }
         Expand-Archive winuaeinclibs.zip -DestinationPath deps
 
     - name: Build ARM64 runtime libraries
