@@ -702,7 +702,7 @@ void free_host_trap_context(TrapContext *ctx)
 {
 	if (trap_is_indirect()) {
 		int trap_slot = RTAREA_TRAP_DATA_NUM;
-		atomic_dec(&outtrap_alloc[trap_slot]);
+		atomic_dec(&outtrap_alloc[trap_slot - RTAREA_TRAP_DATA_NUM]);
 	}
 }
 
@@ -1314,19 +1314,33 @@ int trap_put_string(TrapContext *ctx, const void *haddrp, uaecptr addr, int maxl
 		uae_u8 *p = ctx->host_trap_data + RTAREA_TRAP_DATA_EXTRA;
 		for (;;) {
 			uae_u8 v = *haddr++;
-			*p++ = v;
-			if (!v)
+			maxlen--;
+			if (maxlen == 0) {
+				*p++ = 0;
 				break;
+			}
+			*p++ = v;
+			if (!v) {
+				break;
+			}
 			len++;
 		}
-		call_hardware_trap_back(ctx, TRAPCMD_PUT_STRING, ctx->amiga_trap_data + RTAREA_TRAP_DATA_EXTRA, addr, maxlen, 0);
+		// The loop has already limited and terminated the string: copy its
+		// len + 1 bytes. maxlen now holds only what was left of the limit.
+		call_hardware_trap_back(ctx, TRAPCMD_PUT_BYTES, ctx->amiga_trap_data + RTAREA_TRAP_DATA_EXTRA, addr, len + 1, 0);
 	} else {
 		for (;;) {
 			uae_u8 v = *haddr++;
+			maxlen--;
+			if (maxlen == 0) {
+				put_byte(addr, 0);
+				break;
+			}
 			put_byte(addr, v);
 			addr++;
-			if (!v)
+			if (!v) {
 				break;
+			}
 			len++;
 		}
 	}
@@ -1340,21 +1354,33 @@ int trap_get_string(TrapContext *ctx, void *haddrp, uaecptr addr, int maxlen)
 		uae_u8 *p = ctx->host_trap_data + RTAREA_TRAP_DATA_EXTRA;
 		call_hardware_trap_back(ctx, TRAPCMD_GET_STRING, addr, ctx->amiga_trap_data + RTAREA_TRAP_DATA_EXTRA, maxlen, 0);
 		for (;;) {
+			maxlen--;
+			if (maxlen == 0) {
+				*haddr++ = 0;
+				break;
+			}
 			uae_u8 v = *p++;
 			*haddr++ = v;
-			if (!v)
+			if (!v) {
 				break;
+			}
 			len++;
 		}
 	} else {
 		for (;;) {
+			maxlen--;
+			if (maxlen == 0) {
+				*haddr++ = 0;
+				break;
+			}
 			uae_u8 v = get_byte(addr);
 			*haddr++ = v;
 			addr++;
-			if (!v)
+			if (!v) {
 				break;
+			}
+			len++;
 		}
-		len++;
 	}
 	return len;
 }
